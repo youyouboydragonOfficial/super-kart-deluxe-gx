@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable dir"
+    "dist": "electron-builder --win nsis portable"
   },
   "author": "Antigravity & User",
   "license": "MIT",
@@ -17,11 +17,19 @@
     },
     "win": {
       "target": [
+        "nsis",
         "portable"
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "SuperKartDeluxeGX-Setup-Installer-v1.0.0.exe"
+    },
     "portable": {
-      "artifactName": "SuperKartDeluxeGX-Portable-v1.0.0.exe"
+      "artifactName": "SuperKartDeluxeGX-Portable-NoInstall-v1.0.0.exe"
     }
   },
   "dependencies": {
