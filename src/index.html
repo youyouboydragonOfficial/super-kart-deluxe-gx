@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MARIO KART GX DELUXE - 完全再現＆オリジナル超ギミックエディション</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 3D WebGL Canvas (Always running in background for authentic 3D Demo Camera on Title Screen) -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- Speed Lines / Screen Effects Overlay -->
+  <div id="fx-overlay"></div>
+  <div id="lightning-flash"></div>
+  <div id="warning-banner" class="hidden">
+    <span class="warning-icon">⚠️</span>
+    <span id="warning-text">後方からアカこうら接近中！！</span>
+  </div>
+
+  <!-- ================= 1. NINTENDO-STYLE BOOT SPLASH ================= -->
+  <div id="screen-boot" class="screen active">
+    <div class="boot-logo-box">
+      <div class="boot-racer-badge">RACING ENGINE GX</div>
+      <div class="boot-main-logo">SUPER KART <span>STUDIO</span></div>
+      <div class="boot-sub">3D FULL PHYSICS &amp; GIMMICK EDITION</div>
+    </div>
+  </div>
+
+  <!-- ================= 2. AUTHENTIC TITLE SCREEN ================= -->
+  <div id="screen-title" class="screen">
+    <div class="title-top-bar">
+      <div class="ver-badge">Ver. 1.0.0 DELUXE GX (Windows Native)</div>
+      <div class="top-controls-hint">F11: フルスクリーン切替 | M: サウンドON/OFF</div>
+    </div>
+
+    <div class="title-center-wrap">
+      <div class="mk-logo-container">
+        <div class="mk-logo-ribbon">SUPER</div>
+        <h1 class="mk-logo-main">MARIO KART <span>GX</span></h1>
+        <div class="mk-logo-deluxe">DELUXE &amp; ORIGINAL GIMMICKS</div>
+      </div>
+
+      <div id="press-start-prompt" class="press-start-btn" onclick="window.uiFlow.openMainMenu()">
+        <span class="blink-text">▶ PRESS ENTER OR CLICK TO START ◀</span>
+      </div>
+
+      <!-- Main Mode Menu (Revealed after Press Start) -->
+      <div id="title-mode-menu" class="mode-menu hidden">
+        <button class="mk-menu-btn primary" onclick="window.uiFlow.selectMode('gp')">
+          <span class="btn-icon">🏆</span>
+          <div class="btn-text">
+            <div class="btn-title">グランプリ / シングルレース (150cc GX)</div>
+            <div class="btn-desc">全8台でアイテム＆ギミック満載の本格バトルレース！</div>
+          </div>
+        </button>
+        <button class="mk-menu-btn mayhem" onclick="window.uiFlow.selectMode('mayhem')">
+          <span class="btn-icon">💥</span>
+          <div class="btn-text">
+            <div class="btn-title">【特盛】カオスアイテム大乱闘モード (200cc)</div>
+            <div class="btn-desc">アイテム大量出現！バナナ・こうら・ボムへい・壁激突の超ド派手モード！</div>
+          </div>
+        </button>
+        <button class="mk-menu-btn timeattack" onclick="window.uiFlow.selectMode('tt')">
+          <span class="btn-icon">⏱️</span>
+          <div class="btn-text">
+            <div class="btn-title">タイムアタック (トリプルキノコ装備)</div>
+            <div class="btn-desc">ドリフト・ミニターボとショートカットで最速ラップを目指せ！</div>
+          </div>
+        </button>
+        <div class="menu-sub-row">
+          <button class="mk-sub-btn" onclick="window.uiFlow.toggleHowToPlay()">🎮 操作方法・ギミック図鑑</button>
+          <button class="mk-sub-btn" onclick="window.uiFlow.quitApp()">🚪 ゲーム終了</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 3. CHARACTER & KART SELECT SCREEN ================= -->
+  <div id="screen-select" class="screen">
+    <div class="select-header">
+      <button class="back-btn" onclick="window.uiFlow.backToTitle()">◀ タイトルへ戻る</button>
+      <h2>ドライバー ＆ マシン カスタマイズ</h2>
+      <div id="selected-mode-pill" class="mode-pill">150cc グランプリ</div>
+    </div>
+
+    <div class="select-grid-layout">
+      <!-- Driver Roster -->
+      <div class="panel-box">
+        <h3>1. キャラクター選択 (8 DRIVERS)</h3>
+        <div id="driver-grid" class="driver-grid"></div>
+      </div>
+
+      <!-- Kart Frame & Stats Preview -->
+      <div class="panel-box">
+        <h3>2. カートボディ ＆ 性能ステータス</h3>
+        <div id="kart-list" class="kart-list"></div>
+
+        <div class="driver-detail-card">
+          <div class="detail-header">
+            <span id="preview-driver-name" class="detail-name">マリオ</span>
+            <span id="preview-driver-title" class="detail-badge">オールラウンド</span>
+          </div>
+          <p id="preview-driver-desc" class="detail-desc"></p>
+          <div class="special-box">
+            <span class="sp-label">★ オリジナル必殺オーバードライブ:</span>
+            <span id="preview-special-name" class="sp-val">ファイアボール・ストーム</span>
+          </div>
+
+          <div class="stat-bars">
+            <div class="stat-row"><span>スピード</span><div class="bar-bg"><div id="stat-speed" class="bar-fill"></div></div></div>
+            <div class="stat-row"><span>加速力</span><div class="bar-bg"><div id="stat-accel" class="bar-fill"></div></div></div>
+            <div class="stat-row"><span>重さ・体当たり</span><div class="bar-bg"><div id="stat-weight" class="bar-fill"></div></div></div>
+            <div class="stat-row"><span>ハンドリング</span><div class="bar-bg"><div id="stat-handling" class="bar-fill"></div></div></div>
+            <div class="stat-row"><span>ドリフトターボ</span><div class="bar-bg"><div id="stat-drift" class="bar-fill"></div></div></div>
+          </div>
+        </div>
+
+        <button class="next-step-btn" onclick="window.uiFlow.goToCourseSelect()">
+          コース選択へ進む ▶
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 4. CUP & COURSE SELECT SCREEN ================= -->
+  <div id="screen-course" class="screen">
+    <div class="select-header">
+      <button class="back-btn" onclick="window.uiFlow.backToCharSelect()">◀ キャラ選択へ戻る</button>
+      <h2>カップ ＆ コース選択 (オリジナルギミック搭載)</h2>
+      <div class="cc-selector">
+        <label>排気量クラス:</label>
+        <select id="cc-select" onchange="window.uiFlow.changeCC(this.value)">
+          <option value="100">100cc (スタンダード)</option>
+          <option value="150" selected>150cc (テクニカル本命)</option>
+          <option value="200">200cc (超高速ブレーキ必須)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="course-cards-container" class="course-cards-container"></div>
+
+    <div class="course-options-bar">
+      <label class="toggle-opt">
+        <input type="checkbox" id="opt-frantic-items" checked />
+        <span>🔥 アイテム大量カオスボックス有効（トリプル＆特大アイテム高確率＋大量設置）</span>
+      </label>
+      <label class="toggle-opt">
+        <input type="checkbox" id="opt-extra-gimmicks" checked />
+        <span>⚡ オリジナルコースギミック最大稼働（ドッスン・回転レーザー・ワープ・反重力）</span>
+      </label>
+      <button class="launch-race-btn" onclick="window.uiFlow.startRaceNow()">
+        🏁 レーススタート！！
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= 5. IN-RACE HUD OVERLAY ================= -->
+  <div id="screen-hud" class="screen pointer-none">
+    <!-- Top Left: Item Roulette Box & Secondary Item / Chaos Spawner -->
+    <div class="hud-top-left">
+      <div class="item-slot-main" id="hud-item-box">
+        <div class="item-slot-frame">
+          <div id="hud-item-icon" class="item-icon-display">❓</div>
+          <div id="hud-item-count" class="item-count-badge hidden">×3</div>
+        </div>
+        <div id="hud-item-name" class="item-name-label">アイテムなし</div>
+      </div>
+
+      <div class="item-throw-hint">
+        <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム発射</div>
+        <div><kbd>↓+Space</kbd> / <kbd>X</kbd>: <strong>後ろに設置/後方発射</strong></div>
+        <div><kbd>C</kbd>: バナナ＆こうら一斉大量ばら撒き！</div>
+      </div>
+    </div>
+
+    <!-- Top Center: Course Banner / Countdown / Lap Notice / Event Ticker -->
+    <div class="hud-top-center">
+      <div id="countdown-banner" class="countdown-banner hidden">3</div>
+      <div id="event-ticker" class="event-ticker"></div>
+    </div>
+
+    <!-- Top Right: Lap, Timer, Rear-View Mirror Toggle & Quick Action Buttons -->
+    <div class="hud-top-right pointer-auto">
+      <div class="telemetry-box">
+        <div class="lap-box">
+          <span class="lbl">LAP</span>
+          <span id="hud-lap" class="val">1 / 3</span>
+        </div>
+        <div class="time-box">
+          <span class="lbl">TIME</span>
+          <span id="hud-time" class="val">00:00.00</span>
+        </div>
+      </div>
+      <div class="hud-quick-btns">
+        <button class="hud-mini-btn" onclick="window.game.spawnChaosWave()" title="コース上に大量のバナナと反射こうらを降らせる！">🍌🟢 カオス大量投下 (C)</button>
+        <button class="hud-mini-btn" onclick="window.game.givePlayerSuperItem()" title="今すぐ強力アイテムを補充！">🎁 即アイテム補充 (V)</button>
+        <button class="hud-mini-btn" onclick="window.uiFlow.togglePause()">⏸ ポーズ (ESC)</button>
+      </div>
+    </div>
+
+    <!-- Center-Top Rear View Indicator / Lakitu Reverse Warning -->
+    <div id="lakitu-banner" class="lakitu-banner hidden">
+      ☁️ ジュゲム警告: 逆走しています！ / コース復帰中...
+    </div>
+
+    <!-- Left Side Live Standings Board (All 8 Racers) -->
+    <div class="hud-left-standings">
+      <div class="standings-title">LIVE RANKING</div>
+      <div id="hud-standings-list" class="standings-list"></div>
+    </div>
+
+    <!-- Bottom Left: Coins & Original Overdrive Gauge -->
+    <div class="hud-bottom-left">
+      <div class="coin-counter">
+        <span class="coin-ico">🪙</span>
+        <span id="hud-coins" class="coin-num">00</span>
+        <span class="coin-sub">MAX 10 (最高速UP!)</span>
+      </div>
+
+      <!-- Original Mechanic: OVERDRIVE / GRAVITY SHIFT BAR -->
+      <div class="overdrive-panel">
+        <div class="od-header">
+          <span>⚡ OVERDRIVE / 必殺ゲージ (<kbd>Shift</kbd> or <kbd>E</kbd>)</span>
+          <span id="hud-od-pct">0%</span>
+        </div>
+        <div class="od-bar-bg">
+          <div id="hud-od-fill" class="od-bar-fill"></div>
+        </div>
+        <div id="hud-drift-status" class="drift-badge">DRIFT STANDBY (ドリフト: Ctrl / J / L)</div>
+      </div>
+    </div>
+
+    <!-- Bottom Right: Rank Badge, Speedometer & Live Minimap -->
+    <div class="hud-bottom-right">
+      <div class="rank-speed-wrap">
+        <div id="hud-rank-box" class="rank-badge rank-1">
+          <span id="hud-rank-num">1</span><span id="hud-rank-suffix">st</span>
+        </div>
+        <div class="speedometer-box">
+          <div id="hud-speed-num" class="speed-num">0</div>
+          <div class="speed-unit">km/h</div>
+        </div>
+      </div>
+      <div class="minimap-wrap">
+        <canvas id="minimap-canvas" width="190" height="150"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 6. PAUSE / RESULTS MODAL ================= -->
+  <div id="modal-pause" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h2>⏸ PAUSE MENU</h2>
+      <p>レース一時停止中</p>
+      <div class="modal-actions">
+        <button class="mk-menu-btn primary" onclick="window.uiFlow.togglePause()">▶ レース再開</button>
+        <button class="mk-menu-btn" onclick="window.uiFlow.restartRace()">🔄 このコースを最初からやり直す</button>
+        <button class="mk-menu-btn" onclick="window.uiFlow.backToCharSelect()">🏎️ キャラ・コース選択へ戻る</button>
+        <button class="mk-menu-btn" onclick="window.uiFlow.backToTitle()">🏠 タイトル画面へ戻る</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-results" class="modal-backdrop hidden">
+    <div class="modal-card results-card">
+      <div class="results-header">
+        <h2 id="res-headline">🏁 FINISH!! 第1位 優勝おめでとう！！</h2>
+        <div id="res-sub" class="res-sub">マリオスタジアム GX - 150cc</div>
+      </div>
+      <div id="results-table" class="results-table"></div>
+      <div class="modal-actions horizontal">
+        <button class="mk-menu-btn primary" onclick="window.uiFlow.restartRace()">🔄 もう1回レースする</button>
+        <button class="mk-menu-btn mayhem" onclick="window.uiFlow.nextCourse()">⏭ 次のコースへ進む</button>
+        <button class="mk-menu-btn" onclick="window.uiFlow.backToTitle()">🏠 タイトル画面へ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 7. HOW TO PLAY & GIMMICK GUIDE MODAL ================= -->
+  <div id="modal-help" class="modal-backdrop hidden">
+    <div class="modal-card help-card">
+      <h2>🎮 操作方法 ＆ 本家完全再現＋オリジナルギミック解説</h2>
+      <div class="help-columns">
+        <div class="help-col">
+          <h3>🏎️ カート操作（キーボード）</h3>
+          <ul>
+            <li><strong>アクセル（前進）</strong>: <kbd>W</kbd> または <kbd>↑</kbd> （カウントダウン「2」の消え際から長押しで<strong>ロケットスタート</strong>！）</li>
+            <li><strong>ブレーキ / バック</strong>: <kbd>S</kbd> または <kbd>↓</kbd></li>
+            <li><strong>ステアリング（左右）</strong>: <kbd>A</kbd> / <kbd>D</kbd> または <kbd>←</kbd> / <kbd>→</kbd></li>
+            <li><strong>ホップ ＆ ドリフト</strong>: 曲がりながら <kbd>Shift</kbd> / <kbd>Ctrl</kbd> / <kbd>K</kbd><br/>
+              👉 火花が <strong>青 ➔ オレンジ ➔ 紫(ウルトラミニターボ)</strong> に変化！離すと爆発加速！</li>
+            <li><strong>アイテム前投げ / 使用</strong>: <kbd>Space</kbd> または <kbd>Z</kbd> （バナナやボムへいも前方に大遠投可能！）</li>
+            <li><strong>アイテム後ろ置き / 後方発射</strong>: <kbd>X</kbd> または <kbd>↓ + Space</kbd> （後ろにバナナ設置・後ろへこうら発射！）</li>
+            <li><strong>オリジナル必殺 OVERDRIVE</strong>: ゲージ100%で <kbd>E</kbd> キー！反重力ホバー＋衝撃波＋超加速！</li>
+            <li><strong>カオス特盛ボタン</strong>: レース中 <kbd>C</kbd> キーで自分の周囲と前方に大量のバナナ＆壁反射こうらを一斉放出！ <kbd>V</kbd> キーで即座に強力アイテム補充！</li>
+          </ul>
+        </div>
+        <div class="help-col">
+          <h3>🌟 搭載ギミック＆物理仕様</h3>
+          <ul>
+            <li><strong>壁激突＆跳ね返り物理</strong>: カートがコース壁に激突すると火花を散らしてバウンド！ミドリこうらは壁で何回も反射し続け、コース中がカオスになります。</li>
+            <li><strong>巨大ドッスン (Thwomp)</strong>: 上空から轟音とともに落下！直撃するとペシャンコに潰されて減速！</li>
+            <li><strong>回転レーザー＆ファイアバー</strong>: コース中央で回転する障害物。当たるとスピン＆コイン放出！</li>
+            <li><strong>反重力スピンターボバー</strong>: 青く光る反重力エリアでは、ライバルやスピンバーにぶつかると逆に<strong>スピンターボ加速</strong>！</li>
+            <li><strong>ワープポータル＆大ジャンプ台</strong>: 入ると前方へ瞬間移動するワープゲートや、グライダー飛行する大ジャンプ台を搭載！</li>
+          </ul>
+        </div>
+      </div>
+      <button class="mk-menu-btn primary" onclick="window.uiFlow.toggleHowToPlay()">閉じる</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="../node_modules/three/build/three.min.js"></script>
+  <script src="sound.js"></script>
+  <script src="data.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
