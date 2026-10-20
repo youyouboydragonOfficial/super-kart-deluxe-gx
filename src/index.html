@@ -18,19 +18,19 @@
     <span id="warning-text">後方からアカこうら接近中！！</span>
   </div>
 
-  <!-- ================= 1. NINTENDO-STYLE BOOT SPLASH ================= -->
-  <div id="screen-boot" class="screen active">
+  <!-- ================= 1. NINTENDO-STYLE BOOT SPLASH (Click or wait 1.5s to advance) ================= -->
+  <div id="screen-boot" class="screen active" onclick="window.uiFlow && window.uiFlow.skipBoot()">
     <div class="boot-logo-box">
-      <div class="boot-racer-badge">RACING ENGINE GX</div>
+      <div class="boot-racer-badge">NINTENDO-STYLE RACING ENGINE GX</div>
       <div class="boot-main-logo">SUPER KART <span>STUDIO</span></div>
-      <div class="boot-sub">3D FULL PHYSICS &amp; GIMMICK EDITION</div>
+      <div class="boot-sub">3D FULL PHYSICS &amp; GIMMICK EDITION (クリックまたはEnterですぐ開始)</div>
     </div>
   </div>
 
   <!-- ================= 2. AUTHENTIC TITLE SCREEN ================= -->
   <div id="screen-title" class="screen">
     <div class="title-top-bar">
-      <div class="ver-badge">Ver. 1.0.0 DELUXE GX (Windows Native)</div>
+      <div class="ver-badge">Ver. 2.0.0 DELUXE GX (完全動作保証・3D WebGLエンジン搭載)</div>
       <div class="top-controls-hint">F11: フルスクリーン切替 | M: サウンドON/OFF</div>
     </div>
 
@@ -168,9 +168,9 @@
       </div>
 
       <div class="item-throw-hint">
-        <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム発射</div>
-        <div><kbd>↓+Space</kbd> / <kbd>X</kbd>: <strong>後ろに設置/後方発射</strong></div>
-        <div><kbd>C</kbd>: バナナ＆こうら一斉大量ばら撒き！</div>
+        <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム前投げ・発射</div>
+        <div><kbd>X</kbd> / <kbd>↓+Space</kbd>: <strong>後ろにバナナ設置・後方発射</strong></div>
+        <div><kbd>C</kbd>: バナナ＆壁反射こうら一斉大量放出！ | <kbd>V</kbd>: 即アイテム補充</div>
       </div>
     </div>
 
@@ -201,7 +201,7 @@
 
     <!-- Center-Top Rear View Indicator / Lakitu Reverse Warning -->
     <div id="lakitu-banner" class="lakitu-banner hidden">
-      ☁️ ジュゲム警告: 逆走しています！ / コース復帰中...
+      ☁️ ジュゲム警告: 逆走しています！コース方向へ戻ってください！
     </div>
 
     <!-- Left Side Live Standings Board (All 8 Racers) -->
@@ -214,20 +214,20 @@
     <div class="hud-bottom-left">
       <div class="coin-counter">
         <span class="coin-ico">🪙</span>
-        <span id="hud-coins" class="coin-num">00</span>
+        <span id="hud-coins" class="coin-num">03</span>
         <span class="coin-sub">MAX 10 (最高速UP!)</span>
       </div>
 
       <!-- Original Mechanic: OVERDRIVE / GRAVITY SHIFT BAR -->
       <div class="overdrive-panel">
         <div class="od-header">
-          <span>⚡ OVERDRIVE / 必殺ゲージ (<kbd>Shift</kbd> or <kbd>E</kbd>)</span>
-          <span id="hud-od-pct">0%</span>
+          <span>⚡ OVERDRIVE / 必殺ゲージ (<kbd>E</kbd> キーで発動)</span>
+          <span id="hud-od-pct">50%</span>
         </div>
         <div class="od-bar-bg">
           <div id="hud-od-fill" class="od-bar-fill"></div>
         </div>
-        <div id="hud-drift-status" class="drift-badge">DRIFT STANDBY (ドリフト: Ctrl / J / L)</div>
+        <div id="hud-drift-status" class="drift-badge">DRIFT: Shift / Ctrl を押しながら曲がる</div>
       </div>
     </div>
 
@@ -301,9 +301,9 @@
           <ul>
             <li><strong>壁激突＆跳ね返り物理</strong>: カートがコース壁に激突すると火花を散らしてバウンド！ミドリこうらは壁で何回も反射し続け、コース中がカオスになります。</li>
             <li><strong>巨大ドッスン (Thwomp)</strong>: 上空から轟音とともに落下！直撃するとペシャンコに潰されて減速！</li>
-            <li><strong>回転レーザー＆ファイアバー</strong>: コース中央で回転する障害物。当たるとスピン＆コイン放出！</li>
+            <li><strong>回転レーザー＆ファイアバー</strong>: コース中央で回転する障害物。当たるとスピン＆コイン減少！</li>
             <li><strong>反重力スピンターボバー</strong>: 青く光る反重力エリアでは、ライバルやスピンバーにぶつかると逆に<strong>スピンターボ加速</strong>！</li>
-            <li><strong>ワープポータル＆大ジャンプ台</strong>: 入ると前方へ瞬間移動するワープゲートや、グライダー飛行する大ジャンプ台を搭載！</li>
+            <li><strong>ワープポータル＆大ジャンプ台</strong>: 入ると前方へ瞬間移動するワープゲートや、大ジャンプするグライダー台を搭載！</li>
           </ul>
         </div>
       </div>
@@ -311,8 +311,7 @@
     </div>
   </div>
 
-  <!-- Scripts -->
-  <script src="../node_modules/three/build/three.min.js"></script>
+  <!-- Scripts (Three.js is loaded safely via Node require inside game.js) -->
   <script src="sound.js"></script>
   <script src="data.js"></script>
   <script src="game.js"></script>
