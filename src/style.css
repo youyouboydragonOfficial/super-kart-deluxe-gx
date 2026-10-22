@@ -692,6 +692,13 @@ body, html {
   gap: 16px;
 }
 
+/* Double Item Container (MK8DX Style) */
+.double-item-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .item-slot-main {
   display: flex;
   flex-direction: column;
@@ -701,19 +708,62 @@ body, html {
 .item-slot-frame {
   width: 96px;
   height: 96px;
-  border-radius: 22px;
-  border: 5px solid #fff;
-  background: radial-gradient(circle, rgba(255,230,0,0.45) 0%, rgba(0,0,0,0.78) 100%);
+  border-radius: 24px;
+  border: 4px solid #fff;
+  background: radial-gradient(circle, rgba(255, 230, 0, 0.45) 0%, rgba(20, 20, 30, 0.85) 100%);
   box-shadow: 0 8px 24px rgba(0,0,0,0.65), inset 0 0 18px rgba(255,255,255,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.item-slot-frame.roulette {
+  animation: roulettePulse 0.12s infinite alternate;
+  border-color: #ffe600;
+  box-shadow: 0 0 25px rgba(255, 230, 0, 0.8), inset 0 0 20px rgba(255, 230, 0, 0.6);
+}
+
+@keyframes roulettePulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.06); }
+}
+
+.item-slot-sub {
+  margin-top: 6px;
+}
+
+.item-slot-frame-sub {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  border: 3px solid rgba(255,255,255,0.7);
+  background: radial-gradient(circle, rgba(0, 242, 255, 0.35) 0%, rgba(15, 15, 25, 0.85) 100%);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5), inset 0 0 12px rgba(255,255,255,0.3);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
 }
 
+.item-slot-frame-sub.roulette {
+  animation: roulettePulse 0.12s infinite alternate;
+  border-color: #00f2ff;
+}
+
 .item-icon-display {
   font-size: 46px;
   filter: drop-shadow(0 4px 6px rgba(0,0,0,0.7));
+}
+
+.item-icon-display-sub {
+  font-size: 30px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));
+}
+
+.item-icon-display.empty, .item-icon-display-sub.empty {
+  opacity: 0.2;
 }
 
 .item-count-badge {
@@ -728,6 +778,18 @@ body, html {
   font-weight: 900;
 }
 
+.item-count-badge-sub {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  background: #e60012;
+  border: 2px solid #fff;
+  border-radius: 99px;
+  padding: 1px 7px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .item-name-label {
   margin-top: 6px;
   background: rgba(0,0,0,0.78);
@@ -737,6 +799,45 @@ body, html {
   font-size: 13px;
   font-weight: 900;
   color: #ffe600;
+}
+
+.guard-badge {
+  background: linear-gradient(90deg, #ff0055, #ff8800);
+  border: 2px solid #fff;
+  border-radius: 99px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #fff;
+  margin-bottom: 6px;
+  display: inline-block;
+  animation: pulseBlink 0.4s infinite alternate;
+}
+
+.trick-banner {
+  background: linear-gradient(90deg, #ffe600, #ff0077);
+  border: 3px solid #fff;
+  padding: 6px 24px;
+  border-radius: 99px;
+  font-weight: 900;
+  font-size: 22px;
+  color: #fff;
+  box-shadow: 0 0 30px rgba(255, 230, 0, 0.9);
+  animation: countPop 0.3s ease;
+  margin-bottom: 6px;
+}
+
+.slipstream-banner {
+  background: linear-gradient(90deg, #00f2ff, #0066ff);
+  border: 3px solid #fff;
+  padding: 6px 24px;
+  border-radius: 99px;
+  font-weight: 900;
+  font-size: 22px;
+  color: #fff;
+  box-shadow: 0 0 30px rgba(0, 242, 255, 0.9);
+  animation: countPop 0.3s ease;
+  margin-bottom: 6px;
 }
 
 .item-throw-hint {

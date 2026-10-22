@@ -1,5 +1,5 @@
-// SUPER KART DELUXE GX - Full 3D Mario Kart Engine + Original Gimmicks
-// Built with Three.js (loaded reliably via Electron/Node require) + Custom Physics Engine
+// SUPER KART DELUXE GX - Full 3D Mario Kart Engine + Original Gimmicks (Ver 2.0)
+// Built with Three.js (reliable Node require) + Advanced 3D Vehicle Dynamics & Item Physics
 
 const THREE = window.THREE || require('three');
 
@@ -18,8 +18,8 @@ class KartGameEngine {
     this.minimapCtx = this.minimapCanvas.getContext('2d');
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 2500);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 3000);
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
@@ -30,7 +30,7 @@ class KartGameEngine {
     this.selectedKartIdx = 0;
     this.selectedCourseIdx = 0;
     this.ccClass = 150;
-    this.franticItems = true;
+    this.franticItems = false;
     this.extraGimmicks = true;
     this.totalLaps = 3;
 
@@ -46,11 +46,12 @@ class KartGameEngine {
     this.player = null;
     this.itemBoxes = [];
     this.coinPickups = [];
+    this.droppedCoins = []; // Coins dropped upon impact
     this.projectiles = []; // Shells, Bananas, Bob-ombs, BlackHoles
     this.gimmicks = []; // BoostPads, Ramps, Thwomps, Firebars, SpinBoosters, WarpPortals
     this.particles = [];
 
-    // Timing
+    // Timing & Frames
     this.clock = new THREE.Clock();
     this.raceTime = 0;
     this.countdownTimer = 0;
@@ -60,8 +61,12 @@ class KartGameEngine {
 
     // Input state
     this.keys = {};
+    this.spacePressedDuration = 0;
     this.setupInputs();
     this.setupResize();
+
+    // Textures cache
+    this.emblemTextures = {};
 
     // Build initial course for 3D Title Demo background
     this.loadCourse(0, true);
@@ -96,34 +101,66 @@ class KartGameEngine {
         }
       }
 
-      if (this.state === 'RACING' && !wasDown && this.player) {
-        // Forward item throw / use
+      if (this.state === 'RACING' && this.player) {
+        // Fast-decide item roulette if spinning (Mario Kart 8DX Authentic feature)
         if (code === 'Space' || code === 'KeyZ') {
           e.preventDefault();
-          const throwBackward = this.keys['ArrowDown'] || this.keys['KeyS'];
-          this.useRacerItem(this.player, throwBackward ? -1 : 1);
+          if (this.player.rouletteTimer1 > 0.2) {
+            this.player.rouletteTimer1 = 0.05;
+          } else if (this.player.rouletteTimer2 > 0.2) {
+            this.player.rouletteTimer2 = 0.05;
+          }
+
+          // Jump Action (Trick) if in midair over ramp/hop!
+          if (this.player.velY > 6 && !this.player.trickPerformed && this.player.pos.y > 0.8) {
+            this.triggerJumpAction(this.player);
+          } else if (!wasDown) {
+            // Check if player can hold item behind (drag item guard)
+            const item = this.player.itemSlot1;
+            if (item && ['BANANA', 'TRIPLE_BANANA', 'GREEN_SHELL', 'TRIPLE_GREEN', 'RED_SHELL', 'TRIPLE_RED', 'BOB_OMB'].includes(item.id)) {
+              this.player.isHoldingItem = true;
+              this.updateHeldItemVisual(this.player);
+              this.updateItemHUD();
+            } else if (item && !this.player.isHoldingItem) {
+              // Instant use items (Mushroom, Star, Lightning, etc.)
+              this.useRacerItem(this.player, 1);
+            }
+          }
         }
-        // Dedicated backward place / throw (Banana behind or Shell backward)
-        if (code === 'KeyX') {
+
+        // Jump action via Drift/Hop key in mid-air
+        if ((code === 'ShiftLeft' || code === 'ShiftRight' || code === 'ControlLeft' || code === 'KeyK') && !wasDown) {
+          if (this.player.velY > 6 && !this.player.trickPerformed && this.player.pos.y > 0.8) {
+            this.triggerJumpAction(this.player);
+          }
+        }
+
+        // Backward throw/place dedicated key (X)
+        if (code === 'KeyX' && !wasDown) {
           this.useRacerItem(this.player, -1);
         }
+
         // Original Overdrive Special Activation
-        if (code === 'KeyE') {
+        if (code === 'KeyE' && !wasDown) {
           this.activateOverdrive(this.player);
-        }
-        // Instant Chaos Barrage (Original requested feature: throw massive bananas & shells everywhere!)
-        if (code === 'KeyC') {
-          this.spawnChaosWave();
-        }
-        // Instant Super Item Refill
-        if (code === 'KeyV') {
-          this.givePlayerSuperItem();
         }
       }
     });
 
     window.addEventListener('keyup', (e) => {
-      this.keys[e.code] = false;
+      const code = e.code;
+      this.keys[code] = false;
+
+      // When releasing Space/Z, if player was holding an item behind (guard), throw it!
+      if ((code === 'Space' || code === 'KeyZ') && this.state === 'RACING' && this.player) {
+        if (this.player.isHoldingItem) {
+          const throwBackward = this.keys['ArrowDown'] || this.keys['KeyS'];
+          this.useRacerItem(this.player, throwBackward ? -1 : 1);
+          this.player.isHoldingItem = false;
+          this.updateHeldItemVisual(this.player);
+          this.updateItemHUD();
+        }
+      }
     });
   }
 
@@ -146,6 +183,37 @@ class KartGameEngine {
   }
 
   // ==================== PROCEDURAL TEXTURE HELPERS ====================
+  getEmblemTexture(initial, colorHex) {
+    const key = `${initial}_${colorHex}`;
+    if (this.emblemTextures[key]) return this.emblemTextures[key];
+
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+
+    // Outer circle with metallic border
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(64, 64, 58, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // Inner letter
+    ctx.fillStyle = `#${colorHex.toString(16).padStart(6, '0')}`;
+    ctx.font = 'bold 80px "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initial, 64, 66);
+
+    const tex = new THREE.CanvasTexture(c);
+    this.emblemTextures[key] = tex;
+    return tex;
+  }
+
   createCheckerTexture(color1 = '#ffffff', color2 = '#111111', repeatX = 2, repeatY = 2) {
     const c = document.createElement('canvas');
     c.width = 128;
@@ -189,47 +257,71 @@ class KartGameEngine {
     return new THREE.CanvasTexture(c);
   }
 
+  createItemBoxTexture() {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+
+    // Translucent rainbow border
+    const grad = ctx.createLinearGradient(0, 0, 128, 128);
+    grad.addColorStop(0, 'rgba(255, 0, 128, 0.85)');
+    grad.addColorStop(0.5, 'rgba(255, 230, 0, 0.85)');
+    grad.addColorStop(1, 'rgba(0, 240, 255, 0.85)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.font = 'bold 88px "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', 64, 66);
+
+    const tex = new THREE.CanvasTexture(c);
+    return tex;
+  }
+
   // ==================== BUILD 3D COURSE & GIMMICKS ====================
   loadCourse(courseIdx, isDemo = false) {
     this.selectedCourseIdx = courseIdx;
     const course = window.GAME_DATA.courses[courseIdx];
     this.trackWidth = course.trackWidth;
 
-    // Clear old world
     while (this.worldGroup.children.length > 0) {
       this.worldGroup.remove(this.worldGroup.children[0]);
     }
     this.itemBoxes = [];
     this.coinPickups = [];
+    this.droppedCoins = [];
     this.projectiles = [];
     this.gimmicks = [];
     this.particles = [];
 
     // Sky & Fog
     this.scene.background = new THREE.Color(course.skyTop);
-    this.scene.fog = new THREE.FogExp2(course.skyBottom, 0.00085);
+    this.scene.fog = new THREE.FogExp2(course.skyBottom, 0.0008);
 
     // Lights
-    const amb = new THREE.AmbientLight(0xffffff, 0.85);
+    const amb = new THREE.AmbientLight(0xffffff, 0.9);
     this.worldGroup.add(amb);
 
-    const sun = new THREE.DirectionalLight(0xfff6e0, 1.3);
-    sun.position.set(180, 320, 150);
+    const sun = new THREE.DirectionalLight(0xfff8e8, 1.35);
+    sun.position.set(200, 350, 180);
     this.worldGroup.add(sun);
 
-    // Ground Plane
-    const groundGeo = new THREE.PlaneGeometry(3200, 3200);
+    // Ground Plane (Off-road dirt/grass)
+    const groundGeo = new THREE.PlaneGeometry(3500, 3500);
     const groundMat = new THREE.MeshLambertMaterial({ color: course.groundColor });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.5;
     this.worldGroup.add(ground);
 
-    // Build closed CatmullRom spline from course waypoints
+    // Closed CatmullRom spline
     const pts = course.waypoints.map(([x, z]) => new THREE.Vector3(x, 0, z));
     this.trackCurve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5);
 
-    const sampleCount = 400;
+    const sampleCount = 420;
     this.trackSamples = [];
     for (let i = 0; i < sampleCount; i++) {
       const t = i / sampleCount;
@@ -264,8 +356,8 @@ class KartGameEngine {
       roadPositions.push(left.x, 0.05, left.z, right.x, 0.05, right.z);
 
       const c = rainbowMode
-        ? new THREE.Color().setHSL(((i / N) * 4) % 1, 0.85, 0.48)
-        : baseRoadColor.clone().offsetHSL(0, 0, i % 2 === 0 ? 0.025 : -0.025);
+        ? new THREE.Color().setHSL(((i / N) * 4) % 1, 0.88, 0.5)
+        : baseRoadColor.clone().offsetHSL(0, 0, i % 2 === 0 ? 0.03 : -0.03);
       roadColors.push(c.r, c.g, c.b, c.r, c.g, c.b);
 
       if (i < N) {
@@ -287,8 +379,8 @@ class KartGameEngine {
     const roadMesh = new THREE.Mesh(roadGeo, roadMat);
     this.worldGroup.add(roadMesh);
 
-    // Physical Curb Walls (Left & Right) so karts and shells bounce off walls!
-    const wallBoxGeo = new THREE.BoxGeometry(2.6, 3.2, 8.5);
+    // Curb Walls (Red/White or Theme)
+    const wallBoxGeo = new THREE.BoxGeometry(2.6, 3.4, 8.8);
     const matA = new THREE.MeshLambertMaterial({ color: course.wallColorA });
     const matB = new THREE.MeshLambertMaterial({ color: course.wallColorB });
 
@@ -299,13 +391,13 @@ class KartGameEngine {
 
       const leftPos = s.point.clone().addScaledVector(s.normal, -(halfW + 1.3));
       const leftWall = new THREE.Mesh(wallBoxGeo, mat);
-      leftWall.position.set(leftPos.x, 1.6, leftPos.z);
+      leftWall.position.set(leftPos.x, 1.7, leftPos.z);
       leftWall.rotation.y = angle;
       this.worldGroup.add(leftWall);
 
       const rightPos = s.point.clone().addScaledVector(s.normal, halfW + 1.3);
       const rightWall = new THREE.Mesh(wallBoxGeo, mat);
-      rightWall.position.set(rightPos.x, 1.6, rightPos.z);
+      rightWall.position.set(rightPos.x, 1.7, rightPos.z);
       rightWall.rotation.y = angle;
       this.worldGroup.add(rightWall);
     }
@@ -318,7 +410,6 @@ class KartGameEngine {
     gateGroup.position.copy(s0.point);
     gateGroup.rotation.y = angle;
 
-    // Checkerboard finish line strip
     const lineGeo = new THREE.PlaneGeometry(this.trackWidth * 2, 6.5);
     const lineMat = new THREE.MeshBasicMaterial({
       map: this.createCheckerTexture('#ffffff', '#111111', 8, 2),
@@ -329,7 +420,6 @@ class KartGameEngine {
     lineMesh.position.y = 0.12;
     gateGroup.add(lineMesh);
 
-    // Pillars
     const pillarGeo = new THREE.CylinderGeometry(1.6, 1.8, 20, 12);
     const pillarMat = new THREE.MeshLambertMaterial({ color: 0xe60012 });
     const leftP = new THREE.Mesh(pillarGeo, pillarMat);
@@ -338,7 +428,6 @@ class KartGameEngine {
     rightP.position.set(this.trackWidth - 1, 10, 0);
     gateGroup.add(leftP, rightP);
 
-    // Top Banner
     const bannerGeo = new THREE.BoxGeometry(this.trackWidth * 2 + 3, 5.0, 2.5);
     const bannerMat = new THREE.MeshLambertMaterial({
       map: this.createCheckerTexture('#ffe600', '#e60012', 6, 1)
@@ -351,41 +440,65 @@ class KartGameEngine {
   }
 
   buildItemBoxesAndCoins(course) {
-    // 8 Item Box clusters around the track (5 boxes per row = 40 Item Boxes!)
-    const clusterIndices = [35, 85, 135, 185, 235, 285, 335, 375];
-    const boxGeo = new THREE.OctahedronGeometry(2.3, 0);
+    // 8 Item Box clusters around the track (5 boxes per cluster, plus Double Item Boxes in center!)
+    const clusterIndices = [35, 85, 140, 195, 245, 295, 345, 385];
+    const itemBoxTex = this.createItemBoxTexture();
 
     clusterIndices.forEach((idx) => {
       const s = this.trackSamples[idx % this.trackSamples.length];
       const offsets = [-18, -9, 0, 9, 18];
       offsets.forEach((off, j) => {
+        const isDouble = j === 2; // Center box is a Double Item Box!
         const pos = s.point.clone().addScaledVector(s.normal, off);
         pos.y = 2.8;
-        const hue = (j * 0.2) % 1;
-        const mat = new THREE.MeshPhongMaterial({
-          color: new THREE.Color().setHSL(hue, 0.95, 0.6),
-          emissive: new THREE.Color().setHSL(hue, 0.8, 0.25),
+
+        const boxGroup = new THREE.Group();
+        boxGroup.position.copy(pos);
+
+        // Outer crystal cube
+        const boxGeo = new THREE.BoxGeometry(3.0, 3.0, 3.0);
+        const boxMat = new THREE.MeshPhongMaterial({
+          map: itemBoxTex,
           transparent: true,
-          opacity: 0.92
+          opacity: 0.88,
+          shininess: 100,
+          color: isDouble ? 0xffcc00 : 0xffffff
         });
-        const mesh = new THREE.Mesh(boxGeo, mat);
-        mesh.position.copy(pos);
-        this.worldGroup.add(mesh);
+        const cube = new THREE.Mesh(boxGeo, boxMat);
+        boxGroup.add(cube);
+
+        // If Double Box, add stacked secondary rotating cube!
+        if (isDouble) {
+          const topCube = new THREE.Mesh(
+            new THREE.BoxGeometry(2.4, 2.4, 2.4),
+            new THREE.MeshPhongMaterial({
+              map: itemBoxTex,
+              transparent: true,
+              opacity: 0.85,
+              shininess: 100,
+              color: 0x00f2ff
+            })
+          );
+          topCube.position.y = 2.5;
+          boxGroup.add(topCube);
+        }
+
+        this.worldGroup.add(boxGroup);
 
         this.itemBoxes.push({
-          mesh,
+          mesh: boxGroup,
           basePos: pos.clone(),
           active: true,
           respawnTimer: 0,
-          isChaosDouble: j === 2
+          isDouble
         });
       });
     });
 
     // Coins along racing lines
     const coinGeo = new THREE.CylinderGeometry(1.3, 1.3, 0.4, 14);
-    const coinMat = new THREE.MeshPhongMaterial({ color: 0xffdd00, emissive: 0x553300 });
-    for (let i = 15; i < this.trackSamples.length; i += 20) {
+    const coinMat = new THREE.MeshPhongMaterial({ color: 0xffdd00, emissive: 0x664400, shininess: 90 });
+    for (let i = 15; i < this.trackSamples.length; i += 18) {
       const s = this.trackSamples[i];
       for (let c = -1; c <= 1; c++) {
         const pos = s.point.clone().addScaledVector(s.normal, c * 7.5);
@@ -402,7 +515,7 @@ class KartGameEngine {
   buildCourseGimmicks(course) {
     const boostTex = this.createBoostPadTexture();
 
-    // 1. Dash Boost Pads (8 around the track)
+    // 1. Dash Boost Pads
     const boostIndices = [24, 72, 120, 170, 220, 270, 320, 365];
     boostIndices.forEach((idx, k) => {
       const s = this.trackSamples[idx % this.trackSamples.length];
@@ -426,11 +539,11 @@ class KartGameEngine {
       });
     });
 
-    // 2. Super Jump Glider Ramps (3 major jump ramps)
+    // 2. Super Jump Glider Ramps
     [95, 210, 345].forEach((idx) => {
       const s = this.trackSamples[idx];
       const angle = Math.atan2(s.tangent.x, s.tangent.z);
-      const rampGeo = new THREE.BoxGeometry(15, 2.0, 11);
+      const rampGeo = new THREE.BoxGeometry(15, 2.2, 11);
       const rampMat = new THREE.MeshLambertMaterial({ color: 0xff8800, emissive: 0x441100 });
       const rampMesh = new THREE.Mesh(rampGeo, rampMat);
       rampMesh.position.set(s.point.x, 0.8, s.point.z);
@@ -448,7 +561,7 @@ class KartGameEngine {
 
     if (!this.extraGimmicks) return;
 
-    // 3. Giant Thwomps (ドッスン) - Slam down periodically and flatten karts!
+    // 3. Giant Thwomps (ドッスン)
     [58, 155, 255, 355].forEach((idx, i) => {
       const s = this.trackSamples[idx];
       const thwompGroup = new THREE.Group();
@@ -480,7 +593,7 @@ class KartGameEngine {
       });
     });
 
-    // 4. Rotating Fire / Laser Bars (回転ファイア＆レーザーバー)
+    // 4. Rotating Fire / Laser Bars
     [112, 295].forEach((idx, i) => {
       const s = this.trackSamples[idx];
       const pivot = new THREE.Group();
@@ -511,7 +624,7 @@ class KartGameEngine {
       });
     });
 
-    // 5. Anti-Gravity Spin Boost Pillars (反重力スピンターボバー: ぶつかると加速！)
+    // 5. Anti-Gravity Spin Boost Pillars
     [45, 145, 245, 330].forEach((idx) => {
       const s = this.trackSamples[idx];
       const pGroup = new THREE.Group();
@@ -537,7 +650,7 @@ class KartGameEngine {
       });
     });
 
-    // 6. Original Hyper Warp Portal Gate (入るとコース前方へワープ＋超加速！)
+    // 6. Hyper Warp Portal Gate
     const warpStartIdx = 195;
     const warpExitIdx = 225;
     const sStart = this.trackSamples[warpStartIdx];
@@ -602,87 +715,423 @@ class KartGameEngine {
     }
   }
 
-  // ==================== BUILD 3D KART & RACER ENTITIES ====================
+  // ==================== ULTRA-DETAILED 3D KART & RACER MODELLING ====================
   createKartMesh(driverData, kartIdx) {
     const root = new THREE.Group();
 
-    const bodyGeo = new THREE.BoxGeometry(2.9, 1.0, 4.6);
-    const bodyMat = new THREE.MeshPhongMaterial({ color: driverData.color, shininess: 85 });
+    // 1. Chassis Group (handles suspension roll and pitch)
+    const chassisGroup = new THREE.Group();
+    root.add(chassisGroup);
+
+    // Aerodynamic Lower Floor Pan & Rear Diffuser
+    const floorGeo = new THREE.BoxGeometry(2.7, 0.22, 4.8);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.8, metalness: 0.2 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.set(0, 0.35, 0);
+    chassisGroup.add(floor);
+
+    // Rear Diffuser Fins
+    for (let f = -1; f <= 1; f++) {
+      const fin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.45, 0.9),
+        new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 })
+      );
+      fin.position.set(f * 0.8, 0.38, -2.3);
+      chassisGroup.add(fin);
+    }
+
+    // Main Streamlined Aerodynamic Body Shell (Driver Team Color)
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: driverData.color,
+      roughness: 0.25,
+      metalness: 0.55
+    });
+
+    const bodyGeo = new THREE.BoxGeometry(2.6, 0.75, 3.6);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.85;
-    root.add(body);
+    body.position.set(0, 0.75, -0.1);
+    chassisGroup.add(body);
 
-    const noseGeo = new THREE.BoxGeometry(2.2, 0.75, 1.7);
-    const noseMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
-    const nose = new THREE.Mesh(noseGeo, noseMat);
-    nose.position.set(0, 0.72, 2.55);
-    root.add(nose);
+    // Sculpted Front Nose Cone (Streamlined Formula Aero)
+    const noseGeo = new THREE.ConeGeometry(1.35, 2.2, 16);
+    const nose = new THREE.Mesh(noseGeo, bodyMat);
+    nose.rotation.x = Math.PI / 2;
+    nose.scale.set(1.0, 1.0, 0.45);
+    nose.position.set(0, 0.65, 2.3);
+    chassisGroup.add(nose);
 
-    const wingGeo = new THREE.BoxGeometry(3.3, 0.32, 0.95);
-    const wingMat = new THREE.MeshPhongMaterial({ color: driverData.hatColor });
-    const wing = new THREE.Mesh(wingGeo, wingMat);
-    wing.position.set(0, 1.9, -2.05);
-    root.add(wing);
+    // Front Wing (Chin Spoiler with Side Endplates)
+    const frontWing = new THREE.Mesh(
+      new THREE.BoxGeometry(3.6, 0.16, 0.8),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3, metalness: 0.8 })
+    );
+    frontWing.position.set(0, 0.38, 2.6);
+    chassisGroup.add(frontWing);
 
-    const pipeGeo = new THREE.CylinderGeometry(0.28, 0.35, 1.4, 8);
-    const pipeMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-    [-0.85, 0.85].forEach((px) => {
-      const pipe = new THREE.Mesh(pipeGeo, pipeMat);
-      pipe.rotation.x = Math.PI / 3;
-      pipe.position.set(px, 1.1, -2.35);
-      root.add(pipe);
+    [-1.8, 1.8].forEach((wx) => {
+      const endplate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.55, 0.9),
+        bodyMat
+      );
+      endplate.position.set(wx, 0.55, 2.6);
+      chassisGroup.add(endplate);
     });
 
-    const wheelGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.68, 12);
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-    const wheels = [];
-    [
-      [-1.6, 0.7, 1.5],
-      [1.6, 0.7, 1.5],
-      [-1.7, 0.7, -1.5],
-      [1.7, 0.7, -1.5]
-    ].forEach(([wx, wy, wz]) => {
-      const w = new THREE.Mesh(wheelGeo, wheelMat);
-      w.rotation.z = Math.PI / 2;
-      w.position.set(wx, wy, wz);
-      root.add(w);
-      wheels.push(w);
+    // Front LED Headlights
+    [-0.85, 0.85].forEach((hx) => {
+      const light = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.24, 0.12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      light.rotation.x = Math.PI / 2;
+      light.position.set(hx, 0.72, 2.5);
+      chassisGroup.add(light);
     });
 
+    // Emblem Badge on Front Nose (Authentic Character Initial: M, L, P, B, Y, T, W, R)
+    const initial = driverData.name[0] || 'M';
+    const emblemTex = this.getEmblemTexture(initial, driverData.color);
+    const emblemMesh = new THREE.Mesh(
+      new THREE.CircleGeometry(0.55, 24),
+      new THREE.MeshBasicMaterial({ map: emblemTex, transparent: true })
+    );
+    emblemMesh.rotation.x = -Math.PI / 2.8;
+    emblemMesh.position.set(0, 0.88, 1.85);
+    chassisGroup.add(emblemMesh);
+
+    // Side Pods / Air Scoops (Left & Right)
+    [-1.35, 1.35].forEach((sx) => {
+      const pod = new THREE.Mesh(
+        new THREE.BoxGeometry(0.65, 0.6, 2.4),
+        new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4, metalness: 0.6 })
+      );
+      pod.position.set(sx, 0.65, -0.2);
+      chassisGroup.add(pod);
+
+      // White/Color Accent Stripe on Side Pod
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.22, 2.2),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      stripe.position.set(sx + (sx > 0 ? 0.31 : -0.31), 0.68, -0.2);
+      chassisGroup.add(stripe);
+    });
+
+    // 2. Cockpit Interior (Racing Bucket Seat, Steering Column, Wheel, Dashboard)
+    // Bucket Seat
+    const seatBack = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 1.4, 0.35),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })
+    );
+    seatBack.position.set(0, 1.35, -0.75);
+    seatBack.rotation.x = -0.15;
+    chassisGroup.add(seatBack);
+
+    // Headrest
+    const headrest = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.65, 0.3),
+      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 })
+    );
+    headrest.position.set(0, 2.1, -0.9);
+    chassisGroup.add(headrest);
+
+    // Steering Shaft and Wheel
+    const steerShaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 1.1, 8),
+      new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8 })
+    );
+    steerShaft.rotation.x = Math.PI / 3.2;
+    steerShaft.position.set(0, 1.1, 0.55);
+    chassisGroup.add(steerShaft);
+
+    // Steering Wheel Group (Rotates with player input)
+    const steeringWheelGroup = new THREE.Group();
+    steeringWheelGroup.position.set(0, 1.48, 0.32);
+    steeringWheelGroup.rotation.x = -Math.PI / 6;
+    chassisGroup.add(steeringWheelGroup);
+
+    const wheelRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.48, 0.075, 12, 24),
+      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 })
+    );
+    steeringWheelGroup.add(wheelRim);
+
+    // 3-Spoke GT Wheel Hub
+    const hub = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.14, 0.14, 0.08, 12),
+      new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9 })
+    );
+    hub.rotation.x = Math.PI / 2;
+    steeringWheelGroup.add(hub);
+
+    for (let spk = 0; spk < 3; spk++) {
+      const spoke = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.42, 0.04),
+        new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9 })
+      );
+      spoke.rotation.z = (spk * Math.PI * 2) / 3;
+      spoke.position.y = 0.2;
+      steeringWheelGroup.add(spoke);
+    }
+
+    // 3. Engine Bay & Dual Exhaust Pipes
+    const engineBlock = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.85, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.9, roughness: 0.25 })
+    );
+    engineBlock.position.set(0, 0.95, -1.65);
+    chassisGroup.add(engineBlock);
+
+    // Dual Exhaust Pipes
+    const exhaustPipes = [];
+    [-0.65, 0.65].forEach((px) => {
+      const pipe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.32, 1.6, 12),
+        new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.95, roughness: 0.15 })
+      );
+      pipe.rotation.x = Math.PI / 2.8;
+      pipe.position.set(px, 0.9, -2.4);
+      chassisGroup.add(pipe);
+      exhaustPipes.push(pipe);
+    });
+
+    // Large Rear Downforce Wing
+    [-0.95, 0.95].forEach((sx) => {
+      const wingStay = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 1.1, 0.35),
+        new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 })
+      );
+      wingStay.position.set(sx, 1.5, -2.05);
+      wingStay.rotation.x = 0.2;
+      chassisGroup.add(wingStay);
+    });
+
+    const rearWing = new THREE.Mesh(
+      new THREE.BoxGeometry(3.6, 0.22, 1.1),
+      new THREE.MeshStandardMaterial({ color: driverData.hatColor, roughness: 0.3, metalness: 0.4 })
+    );
+    rearWing.position.set(0, 2.05, -2.2);
+    rearWing.rotation.x = -0.15;
+    chassisGroup.add(rearWing);
+
+    // 4. Wheels & Suspension (Front Steering Pivots + Rotating Wheels + Anti-Gravity Tilt)
+    const wheelAssemblies = [];
+    const frontSteerPivots = [];
+
+    // [x, y, z, isFront, isLeft]
+    const wheelPositions = [
+      [-1.65, 0.68, 1.45, true, true],
+      [1.65, 0.68, 1.45, true, false],
+      [-1.75, 0.72, -1.45, false, true],
+      [1.75, 0.72, -1.45, false, false]
+    ];
+
+    wheelPositions.forEach(([wx, wy, wz, isFront, isLeft]) => {
+      // Base Pivot on root
+      const pivot = new THREE.Group();
+      pivot.position.set(wx, wy, wz);
+      root.add(pivot);
+
+      if (isFront) {
+        frontSteerPivots.push(pivot);
+      }
+
+      // Hover / Anti-Gravity Tilt Group (Tilts 90 deg when anti-grav activated!)
+      const tiltGroup = new THREE.Group();
+      pivot.add(tiltGroup);
+
+      // Spin Group (Rotates along wheel axis with speed)
+      const spinGroup = new THREE.Group();
+      tiltGroup.add(spinGroup);
+
+      // Wide Racing Slick Tire (Rubber texture)
+      const tireGeo = new THREE.CylinderGeometry(0.72, 0.72, isFront ? 0.65 : 0.78, 20);
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9, metalness: 0.1 });
+      const tire = new THREE.Mesh(tireGeo, tireMat);
+      tire.rotation.z = Math.PI / 2;
+      spinGroup.add(tire);
+
+      // Chrome 5-Spoke Aluminum Alloy Wheel Rim
+      const rimGeo = new THREE.CylinderGeometry(0.5, 0.5, isFront ? 0.67 : 0.8, 16);
+      const rimMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.95, roughness: 0.15 });
+      const rim = new THREE.Mesh(rimGeo, rimMat);
+      rim.rotation.z = Math.PI / 2;
+      spinGroup.add(rim);
+
+      // Wheel Center Hub Cap
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.18, isFront ? 0.72 : 0.85, 12),
+        new THREE.MeshStandardMaterial({ color: driverData.color, metalness: 0.8 })
+      );
+      cap.rotation.z = Math.PI / 2;
+      spinGroup.add(cap);
+
+      // Perforated Brake Disc Rotor
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.42, 0.08, 16),
+        new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.95, roughness: 0.3 })
+      );
+      disc.rotation.z = Math.PI / 2;
+      disc.position.x = isLeft ? 0.15 : -0.15;
+      spinGroup.add(disc);
+
+      // Sport Red Brake Caliper (Stationary relative to spin, sits on tiltGroup)
+      const caliper = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.35, 0.25),
+        new THREE.MeshStandardMaterial({ color: 0xee1111, roughness: 0.3 })
+      );
+      caliper.position.set(isLeft ? 0.18 : -0.18, 0.28, 0);
+      tiltGroup.add(caliper);
+
+      // Anti-Gravity Cyan Glowing LED Ring (Activated in Hover)
+      const agRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.74, 0.08, 8, 20),
+        new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0 })
+      );
+      agRing.rotation.y = Math.PI / 2;
+      tiltGroup.add(agRing);
+
+      wheelAssemblies.push({
+        pivot,
+        tiltGroup,
+        spinGroup,
+        agRing,
+        isFront
+      });
+    });
+
+    // 5. Highly Detailed Driver Character Model
+    const driverGroup = new THREE.Group();
+    driverGroup.position.set(0, 1.25, -0.2);
+    chassisGroup.add(driverGroup);
+
+    // Torso / Overalls
     const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.65, 0.75, 1.2, 10),
+      new THREE.CylinderGeometry(0.7, 0.82, 1.25, 12),
       new THREE.MeshLambertMaterial({ color: driverData.shirtColor })
     );
-    torso.position.set(0, 1.65, -0.2);
-    root.add(torso);
+    torso.position.set(0, 0.35, 0);
+    driverGroup.add(torso);
 
+    // Overalls Bib (Blue with Yellow Buttons for Mario/Luigi)
+    const bib = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.85, 0.65),
+      new THREE.MeshLambertMaterial({ color: 0x0044cc })
+    );
+    bib.position.set(0, 0.28, 0.15);
+    driverGroup.add(bib);
+
+    [-0.26, 0.26].forEach((bx) => {
+      const button = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 0.05, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffdd00 })
+      );
+      button.rotation.x = Math.PI / 2;
+      button.position.set(bx, 0.55, 0.48);
+      driverGroup.add(button);
+    });
+
+    // Head
     const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.72, 12, 12),
+      new THREE.SphereGeometry(0.75, 16, 16),
       new THREE.MeshLambertMaterial({ color: 0xffccaa })
     );
-    head.position.set(0, 2.55, -0.2);
-    root.add(head);
+    head.position.set(0, 1.25, 0);
+    driverGroup.add(head);
 
-    const cap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.75, 0.78, 0.45, 12),
+    // Nose
+    const noseM = new THREE.Mesh(
+      new THREE.SphereGeometry(0.32, 12, 12),
+      new THREE.MeshLambertMaterial({ color: 0xffbba0 })
+    );
+    noseM.position.set(0, 1.22, 0.72);
+    driverGroup.add(noseM);
+
+    // Moustache (Curved 3D block for Mario/Luigi/Wario)
+    const stache = new THREE.Mesh(
+      new THREE.BoxGeometry(0.85, 0.25, 0.3),
+      new THREE.MeshLambertMaterial({ color: 0x221100 })
+    );
+    stache.position.set(0, 1.05, 0.68);
+    driverGroup.add(stache);
+
+    // Cap / Helmet
+    const capDome = new THREE.Mesh(
+      new THREE.SphereGeometry(0.82, 16, 12),
       new THREE.MeshLambertMaterial({ color: driverData.hatColor })
     );
-    cap.position.set(0, 2.95, -0.15);
-    root.add(cap);
+    capDome.position.set(0, 1.45, -0.05);
+    driverGroup.add(capDome);
 
-    const sparkGeo = new THREE.SphereGeometry(0.65, 8, 8);
+    // Cap Visor
+    const visor = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.78, 0.88, 0.14, 12, 1, false, 0, Math.PI),
+      new THREE.MeshLambertMaterial({ color: driverData.hatColor })
+    );
+    visor.rotation.x = -Math.PI / 6;
+    visor.position.set(0, 1.35, 0.55);
+    driverGroup.add(visor);
+
+    // Cap Emblem
+    const capEmblem = new THREE.Mesh(
+      new THREE.CircleGeometry(0.24, 16),
+      new THREE.MeshBasicMaterial({ map: emblemTex, transparent: true })
+    );
+    capEmblem.position.set(0, 1.62, 0.74);
+    driverGroup.add(capEmblem);
+
+    // Arms extending forward to grip the Steering Wheel!
+    [-0.6, 0.6].forEach((ax) => {
+      const arm = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.22, 0.9, 8),
+        new THREE.MeshLambertMaterial({ color: driverData.shirtColor })
+      );
+      arm.rotation.x = Math.PI / 3;
+      arm.rotation.z = ax > 0 ? -0.25 : 0.25;
+      arm.position.set(ax, 0.65, 0.35);
+      driverGroup.add(arm);
+
+      // White Driving Gloves
+      const glove = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 10, 10),
+        new THREE.MeshLambertMaterial({ color: 0xffffff })
+      );
+      glove.position.set(ax > 0 ? 0.35 : -0.35, 0.25, 0.72);
+      driverGroup.add(glove);
+    });
+
+    // 6. Drift Spark Glow Orbs (Left & Right Rear)
+    const sparkGeo = new THREE.SphereGeometry(0.7, 8, 8);
     const sparkMat = new THREE.MeshBasicMaterial({ color: 0x00d0ff, transparent: true, opacity: 0 });
     const sparkL = new THREE.Mesh(sparkGeo, sparkMat);
-    sparkL.position.set(-1.55, 0.5, -1.95);
+    sparkL.position.set(-1.6, 0.45, -1.8);
     const sparkR = new THREE.Mesh(sparkGeo, sparkMat);
-    sparkR.position.set(1.55, 0.5, -1.95);
+    sparkR.position.set(1.6, 0.45, -1.8);
     root.add(sparkL, sparkR);
 
+    // 7. Orbiting Triple-Items Group
     const orbitGroup = new THREE.Group();
     orbitGroup.position.set(0, 1.2, 0);
     root.add(orbitGroup);
 
-    return { root, bodyMat, wheels, sparkMat, orbitGroup };
+    // 8. Held Item Behind Group (Drag Guard)
+    const heldItemGroup = new THREE.Group();
+    heldItemGroup.position.set(0, 0.8, -3.2);
+    root.add(heldItemGroup);
+
+    return {
+      root,
+      chassisGroup,
+      bodyMat,
+      steeringWheelGroup,
+      frontSteerPivots,
+      wheelAssemblies,
+      driverGroup,
+      sparkMat,
+      orbitGroup,
+      heldItemGroup,
+      exhaustPipes
+    };
   }
 
   spawnRacers(isDemo = false) {
@@ -704,7 +1153,6 @@ class KartGameEngine {
       const kartMod = karts[isPlayer ? this.selectedKartIdx : i % karts.length].bodyMod;
       const built = this.createKartMesh(d, isPlayer ? this.selectedKartIdx : i % karts.length);
 
-      // Place starting grid neatly along the opening straight
       const sampleIdx = (this.trackSamples.length - 8 - i * 3) % this.trackSamples.length;
       const sample = this.trackSamples[sampleIdx];
       const lateralOffset = i % 2 === 0 ? -5.5 : 5.5;
@@ -715,8 +1163,8 @@ class KartGameEngine {
       built.root.rotation.y = heading;
       this.worldGroup.add(built.root);
 
-      const ccMultiplier = this.ccClass === 200 ? 1.24 : this.ccClass === 100 ? 0.88 : 1.05;
-      const baseMaxSpeed = (86 + (d.stats.speed + kartMod.speed) * 4.2) * ccMultiplier;
+      const ccMultiplier = this.ccClass === 200 ? 1.25 : this.ccClass === 100 ? 0.88 : 1.05;
+      const baseMaxSpeed = (88 + (d.stats.speed + kartMod.speed) * 4.2) * ccMultiplier;
 
       const racer = {
         id: i,
@@ -724,12 +1172,21 @@ class KartGameEngine {
         shortName: d.name.split(' ')[0],
         driverData: d,
         isPlayer,
+
+        // 3D Model Hierarchies
         mesh: built.root,
+        chassisGroup: built.chassisGroup,
         bodyMat: built.bodyMat,
-        wheels: built.wheels,
+        steeringWheelGroup: built.steeringWheelGroup,
+        frontSteerPivots: built.frontSteerPivots,
+        wheelAssemblies: built.wheelAssemblies,
+        driverGroup: built.driverGroup,
         sparkMat: built.sparkMat,
         orbitGroup: built.orbitGroup,
+        heldItemGroup: built.heldItemGroup,
+        exhaustPipes: built.exhaustPipes,
 
+        // Dynamics
         pos: startPos.clone(),
         velY: 0,
         heading,
@@ -739,11 +1196,13 @@ class KartGameEngine {
         handlingStat: 2.15 + (d.stats.handling + kartMod.handling) * 0.18,
         weightStat: d.stats.weight,
 
+        // Drift & Mini-Turbo
         drifting: false,
         driftDir: 0,
         driftCharge: 0,
-        driftLevel: 0,
+        driftLevel: 0, // 0, 1(Blue), 2(Orange), 3(Purple Ultra)
 
+        // Boosts, Status & Tricking
         boostTimer: 0,
         boostPower: 0,
         starTimer: 0,
@@ -754,13 +1213,25 @@ class KartGameEngine {
         overdriveGauge: isPlayer ? 50 : 0,
         overdriveTimer: 0,
         antiGravityTimer: 0,
+        trickPerformed: false,
+        trickTimer: 0,
 
-        coins: isPlayer ? 3 : 2,
-        currentItem: null,
-        itemUsesLeft: 0,
-        rouletteTimer: 0,
+        // Slipstream (Drafting)
+        draftTimer: 0,
+        draftTarget: null,
+
+        // Double Item Slots System (MK8DX Authentic)
+        itemSlot1: null, // { def, usesLeft }
+        itemSlot2: null,
+        rouletteTimer1: 0,
+        rouletteTimer2: 0,
+        isHoldingItem: false, // Item drag guard behind
         goldenMushroomTimer: 0,
 
+        // Coins (Max 10, Speed bonus)
+        coins: 0,
+
+        // Race Progress
         lap: 1,
         sampleIdx,
         maxSampleReached: 0,
@@ -770,68 +1241,97 @@ class KartGameEngine {
         finishTime: 0,
         wrongWayTimer: 0,
 
+        // AI
         aiLaneOffset: (Math.random() - 0.5) * 14,
-        aiItemDelay: 1.5 + Math.random() * 2.5
+        aiItemDelay: 2.0 + Math.random() * 2.5
       };
 
+      // In Time Trial mode ONLY, give player 3 Mushrooms at start (Standard MK rule)
       if (this.selectedMode === 'tt' && isPlayer) {
-        this.assignItemToRacer(racer, 'TRIPLE_MUSHROOM');
-      } else if (this.selectedMode === 'mayhem' || isPlayer) {
-        // Give player an immediate starting item in standard/mayhem races so they can test throwing right away!
-        this.assignRandomItem(racer);
+        racer.itemSlot1 = { def: window.GAME_DATA.items.TRIPLE_MUSHROOM, usesLeft: 3 };
+        this.rebuildOrbitingItems(racer);
       }
 
       this.racers.push(racer);
       if (isPlayer) this.player = racer;
     }
+
+    if (this.player) {
+      this.updateItemHUD();
+    }
   }
 
-  // ==================== ITEM ROULETTE, ORBITING & THROWING ====================
-  assignRandomItem(racer) {
+  // ==================== AUTHENTIC ITEM DISTRIBUTION & ROULETTE ====================
+  triggerItemBoxHit(racer, isDouble = false) {
+    // If racer already has both slots full and neither is spinning, do nothing
+    if (racer.itemSlot1 && racer.itemSlot2 && racer.rouletteTimer1 <= 0 && racer.rouletteTimer2 <= 0) {
+      return;
+    }
+
+    window.soundEngine.sfxBoxBreak();
+
+    // Slot 1
+    if (!racer.itemSlot1 && racer.rouletteTimer1 <= 0) {
+      racer.rouletteTimer1 = racer.isPlayer ? 1.5 : 0.4;
+      if (racer.isPlayer) window.soundEngine.sfxItemRouletteTick();
+    } else if (!racer.itemSlot2 && racer.rouletteTimer2 <= 0) {
+      // Slot 2
+      racer.rouletteTimer2 = racer.isPlayer ? 1.5 : 0.4;
+      if (racer.isPlayer) window.soundEngine.sfxItemRouletteTick();
+    }
+
+    // If double box and slot 2 still empty
+    if (isDouble && !racer.itemSlot2 && racer.rouletteTimer2 <= 0) {
+      racer.rouletteTimer2 = racer.isPlayer ? 1.8 : 0.6;
+    }
+
+    if (racer.isPlayer) {
+      this.updateItemHUD();
+    }
+  }
+
+  getRandomItemForRank(rank) {
     const frantic = this.franticItems || this.selectedMode === 'mayhem';
     let pool = [];
 
-    if (racer.rank === 1 && !frantic) {
-      pool = ['BANANA', 'TRIPLE_BANANA', 'GREEN_SHELL', 'TRIPLE_GREEN', 'BOB_OMB', 'MUSHROOM', 'BARRIER_EMP'];
-    } else if (racer.rank <= 3) {
+    if (rank === 1 && !frantic) {
+      // 1st place: Coins, Bananas, Green Shell, Super Horn/EMP
       pool = [
-        'TRIPLE_BANANA', 'GREEN_SHELL', 'TRIPLE_GREEN', 'RED_SHELL', 'TRIPLE_RED',
-        'BOB_OMB', 'MUSHROOM', 'TRIPLE_MUSHROOM', 'BLACK_HOLE', 'BARRIER_EMP'
+        'BANANA', 'BANANA', 'BANANA', 'GREEN_SHELL', 'GREEN_SHELL',
+        'MUSHROOM', 'BOB_OMB', 'BARRIER_EMP'
+      ];
+    } else if (rank <= 3) {
+      // 2nd-3rd place: Red Shell, Triple Bananas/Greens, Mushrooms, Bob-omb
+      pool = [
+        'RED_SHELL', 'RED_SHELL', 'GREEN_SHELL', 'TRIPLE_BANANA',
+        'TRIPLE_GREEN', 'MUSHROOM', 'TRIPLE_MUSHROOM', 'BOB_OMB', 'BARRIER_EMP'
+      ];
+    } else if (rank <= 5) {
+      // 4th-5th place: Triple Red, Triple Mushroom, Star, Bob-omb, Black Hole
+      pool = [
+        'RED_SHELL', 'TRIPLE_RED', 'TRIPLE_MUSHROOM', 'GOLDEN_MUSHROOM',
+        'STAR', 'BOB_OMB', 'BLACK_HOLE', 'SPINY_SHELL'
       ];
     } else {
+      // 6th-8th place: Star, Bullet Bill, Lightning, Spiny (Blue) Shell, Golden Mushroom
       pool = [
-        'TRIPLE_RED', 'TRIPLE_MUSHROOM', 'GOLDEN_MUSHROOM', 'STAR',
-        'SPINY_SHELL', 'LIGHTNING', 'BULLET_BILL', 'BLACK_HOLE', 'BOB_OMB', 'TRIPLE_GREEN'
+        'STAR', 'STAR', 'BULLET_BILL', 'BULLET_BILL', 'LIGHTNING',
+        'SPINY_SHELL', 'GOLDEN_MUSHROOM', 'TRIPLE_RED', 'BLACK_HOLE'
       ];
     }
 
     const chosenId = pool[Math.floor(Math.random() * pool.length)];
-    this.assignItemToRacer(racer, chosenId);
-  }
-
-  assignItemToRacer(racer, itemId) {
-    const def = window.GAME_DATA.items[itemId];
-    if (!def) return;
-    racer.currentItem = def;
-    racer.itemUsesLeft = def.count || 1;
-    if (itemId === 'GOLDEN_MUSHROOM') {
-      racer.goldenMushroomTimer = 8.5;
-      racer.itemUsesLeft = 99;
-    }
-    this.rebuildOrbitingItems(racer);
-    if (racer.isPlayer) {
-      window.soundEngine.sfxItemDecide();
-      this.updateItemHUD();
-    }
+    return window.GAME_DATA.items[chosenId] || window.GAME_DATA.items.BANANA;
   }
 
   rebuildOrbitingItems(racer) {
     while (racer.orbitGroup.children.length > 0) {
       racer.orbitGroup.remove(racer.orbitGroup.children[0]);
     }
-    if (!racer.currentItem || racer.itemUsesLeft <= 0) return;
+    const active = racer.itemSlot1;
+    if (!active || active.usesLeft <= 0) return;
 
-    const id = racer.currentItem.id;
+    const id = active.def.id;
     const isOrbitType = ['TRIPLE_BANANA', 'TRIPLE_GREEN', 'TRIPLE_RED', 'TRIPLE_MUSHROOM'].includes(id);
     if (!isOrbitType) return;
 
@@ -840,21 +1340,61 @@ class KartGameEngine {
     if (id.includes('RED')) color = 0xff2222;
     if (id.includes('MUSHROOM')) color = 0xff3366;
 
-    for (let i = 0; i < racer.itemUsesLeft; i++) {
-      const angle = (i / racer.itemUsesLeft) * Math.PI * 2;
+    for (let i = 0; i < active.usesLeft; i++) {
+      const angle = (i / active.usesLeft) * Math.PI * 2;
       const geo = id.includes('BANANA')
         ? new THREE.ConeGeometry(0.45, 1.35, 8)
-        : new THREE.SphereGeometry(0.62, 10, 10);
-      const mat = new THREE.MeshPhongMaterial({ color });
+        : new THREE.SphereGeometry(0.65, 10, 10);
+      const mat = new THREE.MeshPhongMaterial({ color, shininess: 90 });
       const m = new THREE.Mesh(geo, mat);
-      m.position.set(Math.cos(angle) * 2.9, 0.2, Math.sin(angle) * 2.9);
+      m.position.set(Math.cos(angle) * 3.1, 0.25, Math.sin(angle) * 3.1);
       racer.orbitGroup.add(m);
     }
   }
 
+  updateHeldItemVisual(racer) {
+    while (racer.heldItemGroup.children.length > 0) {
+      racer.heldItemGroup.remove(racer.heldItemGroup.children[0]);
+    }
+
+    if (!racer.isHoldingItem || !racer.itemSlot1) return;
+
+    const id = racer.itemSlot1.def.id;
+    let mesh = null;
+
+    if (id.includes('BANANA')) {
+      mesh = new THREE.Mesh(
+        new THREE.ConeGeometry(0.7, 1.8, 8),
+        new THREE.MeshLambertMaterial({ color: 0xffe600 })
+      );
+    } else if (id.includes('GREEN')) {
+      mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.9, 12, 12),
+        new THREE.MeshPhongMaterial({ color: 0x00e640, shininess: 90 })
+      );
+      mesh.scale.y = 0.8;
+    } else if (id.includes('RED')) {
+      mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.9, 12, 12),
+        new THREE.MeshPhongMaterial({ color: 0xff2222, shininess: 90 })
+      );
+      mesh.scale.y = 0.8;
+    } else if (id === 'BOB_OMB') {
+      mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1.0, 12, 12),
+        new THREE.MeshPhongMaterial({ color: 0x222222, emissive: 0x330000 })
+      );
+    }
+
+    if (mesh) {
+      racer.heldItemGroup.add(mesh);
+    }
+  }
+
   useRacerItem(racer, dir = 1) {
-    if (!racer.currentItem || racer.rouletteTimer > 0) return;
-    const id = racer.currentItem.id;
+    if (!racer.itemSlot1 || racer.rouletteTimer1 > 0) return;
+    const item = racer.itemSlot1;
+    const id = item.def.id;
 
     if (id.includes('BANANA')) {
       this.spawnBanana(racer, dir);
@@ -875,13 +1415,13 @@ class KartGameEngine {
     } else if (id === 'STAR') {
       racer.starTimer = 8.5;
       this.triggerBoost(racer, 8.5, 28);
-      if (racer.isPlayer) this.showTicker('⭐ スーパースター無敵発動！！ライバルを壁へ弾き飛ばせ！');
+      if (racer.isPlayer) this.showTicker('⭐ スーパースター発動！！完全無敵！');
     } else if (id === 'LIGHTNING') {
       this.triggerLightning(racer);
     } else if (id === 'BULLET_BILL') {
       racer.bulletTimer = 6.0;
       racer.starTimer = Math.max(racer.starTimer, 6.0);
-      if (racer.isPlayer) this.showTicker('🚀 キラー変身！！超音速オート突撃！');
+      if (racer.isPlayer) this.showTicker('🚀 キラー変身！！超音速オートパイロット突撃！');
       window.soundEngine.sfxBoost();
     } else if (id === 'BLACK_HOLE') {
       this.spawnBlackHole(racer, dir);
@@ -889,12 +1429,19 @@ class KartGameEngine {
       this.triggerEmpShockwave(racer);
     }
 
-    racer.itemUsesLeft--;
-    if (racer.itemUsesLeft <= 0) {
-      racer.currentItem = null;
+    item.usesLeft--;
+    if (item.usesLeft <= 0) {
+      // Consume Slot 1 and promote Slot 2 to Slot 1 (MK8DX Authentic!)
+      racer.itemSlot1 = racer.itemSlot2;
+      racer.itemSlot2 = null;
+      racer.isHoldingItem = false;
+      this.updateHeldItemVisual(racer);
     }
+
     this.rebuildOrbitingItems(racer);
-    if (racer.isPlayer) this.updateItemHUD();
+    if (racer.isPlayer) {
+      this.updateItemHUD();
+    }
   }
 
   // ==================== PROJECTILES: BANANAS, SHELLS, BOB-OMBS, BLACK HOLES ====================
@@ -1058,39 +1605,15 @@ class KartGameEngine {
     this.racers.forEach((r) => {
       if (r !== caster && r.starTimer <= 0 && r.bulletTimer <= 0) {
         r.shrunkTimer = 6.5;
-        r.currentItem = null;
-        r.itemUsesLeft = 0;
+        r.itemSlot1 = null;
+        r.itemSlot2 = null;
+        r.isHoldingItem = false;
+        this.updateHeldItemVisual(r);
         this.rebuildOrbitingItems(r);
         this.hitRacer(r, 'LIGHTNING');
       }
     });
     if (caster.isPlayer) this.showTicker('⚡ サンダー落雷！！ライバル全員がスピン＆ミニ化！');
-  }
-
-  spawnChaosWave() {
-    if (!this.player) return;
-    window.soundEngine.sfxItemDecide();
-    this.showTicker('🍌🟢💣 カオス大放出！！バナナ＆反射ミドリこうら＆ボムへい一斉投下！！');
-
-    for (let i = -2; i <= 2; i++) {
-      const savedHeading = this.player.heading;
-      this.player.heading += i * 0.22;
-      this.spawnBanana(this.player, i % 2 === 0 ? -1 : 1);
-      this.spawnShell(this.player, i === 0 ? 'RED' : 'GREEN', 1);
-      this.player.heading = savedHeading;
-    }
-    this.spawnBobOmb(this.player, 1);
-  }
-
-  givePlayerSuperItem() {
-    if (!this.player) return;
-    const superPool = [
-      'TRIPLE_RED', 'TRIPLE_BANANA', 'TRIPLE_GREEN', 'STAR',
-      'SPINY_SHELL', 'BOB_OMB', 'BLACK_HOLE', 'GOLDEN_MUSHROOM'
-    ];
-    const pick = superPool[Math.floor(Math.random() * superPool.length)];
-    this.assignItemToRacer(this.player, pick);
-    this.showTicker(`🎁 ${window.GAME_DATA.items[pick].name} を即座に装備しました！`);
   }
 
   activateOverdrive(racer) {
@@ -1108,7 +1631,21 @@ class KartGameEngine {
     }
   }
 
-  // ==================== PHYSICS, DRIFT, WALL COLLISION & AI ====================
+  triggerJumpAction(racer) {
+    racer.trickPerformed = true;
+    racer.trickTimer = 0.9;
+    window.soundEngine.sfxTrick();
+    if (racer.isPlayer) {
+      const banner = document.getElementById('trick-banner');
+      if (banner) {
+        banner.classList.remove('hidden');
+        setTimeout(() => banner.classList.add('hidden'), 1200);
+      }
+      this.showTicker('✨ ジャンプアクション成功！！着地ミニターボ獲得！');
+    }
+  }
+
+  // ==================== PHYSICS, SLIPSTREAM, WALLS & COLLISIONS ====================
   triggerBoost(racer, duration, power) {
     racer.boostTimer = Math.max(racer.boostTimer, duration);
     racer.boostPower = Math.max(racer.boostPower, power);
@@ -1122,11 +1659,39 @@ class KartGameEngine {
     racer.drifting = false;
     racer.driftCharge = 0;
     racer.driftLevel = 0;
-    racer.coins = Math.max(0, racer.coins - 2);
+
+    // Drop 3 coins upon crash (Authentic MK rule!)
+    const dropCount = Math.min(3, racer.coins);
+    racer.coins -= dropCount;
+    for (let c = 0; c < dropCount; c++) {
+      this.spawnDroppedCoin(racer.pos);
+    }
+
     if (racer.isPlayer) {
       window.soundEngine.sfxSpinOut();
       this.showTicker(`💥 クラッシュ！ (${sourceType}) コイン減少＆スピン！`);
     }
+  }
+
+  spawnDroppedCoin(pos) {
+    const coinGeo = new THREE.CylinderGeometry(1.1, 1.1, 0.35, 12);
+    const coinMat = new THREE.MeshPhongMaterial({ color: 0xffdd00, emissive: 0x553300 });
+    const mesh = new THREE.Mesh(coinGeo, coinMat);
+    mesh.rotation.z = Math.PI / 2;
+    mesh.position.copy(pos);
+    mesh.position.y = 1.5;
+    this.worldGroup.add(mesh);
+
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 12 + Math.random() * 18;
+    this.droppedCoins.push({
+      mesh,
+      pos: mesh.position,
+      velX: Math.cos(angle) * speed,
+      velZ: Math.sin(angle) * speed,
+      velY: 14 + Math.random() * 8,
+      life: 8.0
+    });
   }
 
   findClosestTrackSample(pos, hintIdx = 0) {
@@ -1155,6 +1720,7 @@ class KartGameEngine {
   }
 
   updateRacerPhysics(racer, dt) {
+    // Timers
     if (racer.boostTimer > 0) racer.boostTimer -= dt;
     if (racer.starTimer > 0) {
       racer.starTimer -= dt;
@@ -1166,28 +1732,64 @@ class KartGameEngine {
     if (racer.spinOutTimer > 0) racer.spinOutTimer -= dt;
     if (racer.overdriveTimer > 0) racer.overdriveTimer -= dt;
     if (racer.antiGravityTimer > 0) racer.antiGravityTimer -= dt;
+    if (racer.trickTimer > 0) {
+      racer.trickTimer -= dt;
+      racer.chassisGroup.rotation.y += dt * 14; // Trick spin!
+    } else {
+      racer.chassisGroup.rotation.y = 0;
+    }
+
     if (racer.goldenMushroomTimer > 0) {
       racer.goldenMushroomTimer -= dt;
-      if (racer.goldenMushroomTimer <= 0 && racer.currentItem && racer.currentItem.id === 'GOLDEN_MUSHROOM') {
-        racer.currentItem = null;
+      if (racer.goldenMushroomTimer <= 0 && racer.itemSlot1 && racer.itemSlot1.def.id === 'GOLDEN_MUSHROOM') {
+        racer.itemSlot1 = racer.itemSlot2;
+        racer.itemSlot2 = null;
         if (racer.isPlayer) this.updateItemHUD();
       }
     }
-    if (racer.rouletteTimer > 0) {
-      racer.rouletteTimer -= dt;
+
+    // Roulette Slots update
+    if (racer.rouletteTimer1 > 0) {
+      racer.rouletteTimer1 -= dt;
       if (racer.isPlayer && Math.random() < 0.35) window.soundEngine.sfxItemRouletteTick();
-      if (racer.rouletteTimer <= 0) {
-        this.assignRandomItem(racer);
+      if (racer.rouletteTimer1 <= 0) {
+        const itemDef = this.getRandomItemForRank(racer.rank);
+        racer.itemSlot1 = { def: itemDef, usesLeft: itemDef.count || 1 };
+        if (itemDef.id === 'GOLDEN_MUSHROOM') {
+          racer.goldenMushroomTimer = 8.5;
+          racer.itemSlot1.usesLeft = 99;
+        }
+        this.rebuildOrbitingItems(racer);
+        if (racer.isPlayer) {
+          window.soundEngine.sfxItemDecide();
+          this.updateItemHUD();
+        }
       }
     }
 
+    if (racer.rouletteTimer2 > 0) {
+      racer.rouletteTimer2 -= dt;
+      if (racer.rouletteTimer2 <= 0) {
+        const itemDef = this.getRandomItemForRank(racer.rank);
+        racer.itemSlot2 = { def: itemDef, usesLeft: itemDef.count || 1 };
+        if (racer.isPlayer) {
+          window.soundEngine.sfxItemDecide();
+          this.updateItemHUD();
+        }
+      }
+    }
+
+    // Visual scaling for Lightning shrink or Thwomp flatten
     const scaleXZ = racer.shrunkTimer > 0 ? 0.58 : 1.0;
     const scaleY = racer.flattenedTimer > 0 ? 0.28 : racer.shrunkTimer > 0 ? 0.58 : 1.0;
     racer.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
 
+    // Anti-Gravity Hover Transformation (Wheels fold 90 deg horizontal & cyan LED ring glows!)
     const hoverMode = racer.antiGravityTimer > 0 || racer.overdriveTimer > 0;
-    racer.wheels.forEach((w) => {
-      w.rotation.z = hoverMode ? 0.15 : Math.PI / 2;
+    racer.wheelAssemblies.forEach((w) => {
+      const targetTilt = hoverMode ? Math.PI / 2 : 0;
+      w.tiltGroup.rotation.x = THREE.MathUtils.lerp(w.tiltGroup.rotation.x, targetTilt, dt * 10);
+      w.agRing.material.opacity = hoverMode ? 0.95 : 0;
     });
 
     if (racer.starTimer > 0) {
@@ -1200,6 +1802,7 @@ class KartGameEngine {
 
     racer.orbitGroup.rotation.y += dt * 3.8;
 
+    // Controls
     let throttle = 0;
     let steer = 0;
     let wantDrift = false;
@@ -1219,12 +1822,20 @@ class KartGameEngine {
       steer = Math.max(-1, Math.min(1, angleDiff * 2.8));
       wantDrift = Math.abs(angleDiff) > 0.35 && racer.speed > 55;
 
-      if (!racer.isPlayer && this.state === 'RACING' && racer.currentItem) {
+      // AI Item Logic (Can hold banana/shell behind as guard or throw)
+      if (!racer.isPlayer && this.state === 'RACING' && racer.itemSlot1) {
         racer.aiItemDelay -= dt;
         if (racer.aiItemDelay <= 0) {
-          const throwDir = racer.currentItem.id.includes('BANANA') && Math.random() < 0.65 ? -1 : 1;
-          this.useRacerItem(racer, throwDir);
-          racer.aiItemDelay = 1.6 + Math.random() * 2.5;
+          const id = racer.itemSlot1.def.id;
+          if (id.includes('BANANA') && !racer.isHoldingItem && Math.random() < 0.6) {
+            racer.isHoldingItem = true;
+            this.updateHeldItemVisual(racer);
+            racer.aiItemDelay = 3.5;
+          } else {
+            const throwDir = id.includes('BANANA') ? -1 : 1;
+            this.useRacerItem(racer, throwDir);
+            racer.aiItemDelay = 2.5 + Math.random() * 3.0;
+          }
         }
       }
     } else if (this.state === 'RACING') {
@@ -1240,14 +1851,27 @@ class KartGameEngine {
       racer.heading += dt * 14;
     }
 
-    let topSpeed = racer.maxSpeed + racer.coins * 1.2;
+    // Calculate Top Speed with Coins (+1% per coin up to 10%), Boost, Star, Bullet, Shrink
+    const coinBonus = 1.0 + Math.min(10, racer.coins) * 0.01;
+    let topSpeed = racer.maxSpeed * coinBonus;
     if (racer.shrunkTimer > 0) topSpeed *= 0.68;
     if (racer.flattenedTimer > 0) topSpeed *= 0.55;
-    if (racer.starTimer > 0) topSpeed += 24;
-    if (racer.overdriveTimer > 0) topSpeed += 32;
-    if (racer.bulletTimer > 0) topSpeed = 175;
+    if (racer.starTimer > 0) topSpeed += 25;
+    if (racer.overdriveTimer > 0) topSpeed += 34;
+    if (racer.bulletTimer > 0) topSpeed = 180;
     if (racer.boostTimer > 0) topSpeed += racer.boostPower;
 
+    // Check Off-Road Dirt Penalty (Slows down unless Star / Bullet / Boost active!)
+    const closestSample = this.trackSamples[racer.sampleIdx];
+    const offVec = racer.pos.clone().sub(closestSample.point);
+    offVec.y = 0;
+    const latDist = Math.abs(offVec.dot(closestSample.normal));
+    const isOffRoad = latDist > this.trackWidth * 0.95;
+    if (isOffRoad && racer.boostTimer <= 0 && racer.starTimer <= 0 && racer.bulletTimer <= 0) {
+      topSpeed *= 0.45;
+    }
+
+    // Acceleration & Drag
     if (throttle > 0) {
       racer.speed += racer.accelStat * throttle * dt;
       if (racer.boostTimer > 0 || racer.bulletTimer > 0) {
@@ -1264,12 +1888,12 @@ class KartGameEngine {
     }
     if (racer.speed < -35) racer.speed = -35;
 
-    // 3-Stage Drift Mini-Turbo
-    if (wantDrift && racer.speed > 42 && Math.abs(steer) > 0.1 && racer.pos.y <= 0.2) {
+    // Authentic 3-Stage Drift Mini-Turbo (Blue -> Orange -> Purple Ultra)
+    if (wantDrift && racer.speed > 42 && Math.abs(steer) > 0.1 && racer.pos.y <= 0.25) {
       if (!racer.drifting) {
         racer.drifting = true;
         racer.driftDir = Math.sign(steer);
-        racer.velY = 7.5;
+        racer.velY = 7.5; // Hop!
       }
       racer.driftCharge += dt * (1.0 + Math.abs(steer) * 0.65);
       const prevLevel = racer.driftLevel;
@@ -1281,6 +1905,7 @@ class KartGameEngine {
         window.soundEngine.sfxSparkCharge(racer.driftLevel);
       }
     } else if (racer.drifting) {
+      // Release Drift -> Turbo Boost!
       if (racer.driftLevel === 1) {
         this.triggerBoost(racer, 0.9, 22);
         if (racer.isPlayer) window.soundEngine.sfxBoost();
@@ -1291,7 +1916,7 @@ class KartGameEngine {
         this.triggerBoost(racer, 2.3, 36);
         if (racer.isPlayer) {
           window.soundEngine.sfxBoost();
-          this.showTicker('🟣 ウルトラミニターボ炸裂！！');
+          this.showTicker('🟣 ウルトラミニターボ解放！！');
         }
       }
       racer.drifting = false;
@@ -1300,6 +1925,7 @@ class KartGameEngine {
       racer.driftLevel = 0;
     }
 
+    // Drift Sparks
     if (racer.drifting && racer.driftLevel > 0) {
       racer.sparkMat.opacity = 0.92;
       if (racer.driftLevel === 1) racer.sparkMat.color.setHex(0x00d8ff);
@@ -1309,30 +1935,65 @@ class KartGameEngine {
       racer.sparkMat.opacity = 0;
     }
 
+    // Steering & Heading
     const turnRate = racer.handlingStat * (racer.drifting ? 1.28 : 1.0);
     if (Math.abs(racer.speed) > 1.5) {
       const effectiveSteer = racer.drifting ? steer * 0.7 + racer.driftDir * 0.55 : steer;
       racer.heading += effectiveSteer * turnRate * dt * Math.sign(racer.speed);
     }
 
+    // Move forward
     racer.pos.x += Math.sin(racer.heading) * racer.speed * dt;
     racer.pos.z += Math.cos(racer.heading) * racer.speed * dt;
 
+    // Gravity & Jump Landing
     if (racer.pos.y > 0 || racer.velY > 0) {
       racer.pos.y += racer.velY * dt;
-      racer.velY -= 42 * dt;
+      racer.velY -= 45 * dt;
       if (racer.pos.y <= 0) {
         racer.pos.y = 0;
         racer.velY = 0;
+        // If landed after performing a Jump Action trick -> Trigger Trick Landing Boost!
+        if (racer.trickPerformed) {
+          racer.trickPerformed = false;
+          this.triggerBoost(racer, 1.2, 28);
+          if (racer.isPlayer) window.soundEngine.sfxBoost();
+        }
       }
     }
 
+    // ==================== 1000x REALISTIC CAR VISUAL ANIMATIONS ====================
+    // A. Front Wheel Steering Alignment
+    const targetSteerAngle = -steer * 0.55;
+    racer.frontSteerPivots.forEach((p) => {
+      p.rotation.y = THREE.MathUtils.lerp(p.rotation.y, targetSteerAngle, dt * 15);
+    });
+
+    // B. Steering Wheel Rotation in Cockpit
+    racer.steeringWheelGroup.rotation.z = -steer * 1.35;
+
+    // C. 4 Wheels Fast Rolling Animation with Speed
+    const rollDelta = (racer.speed / 0.72) * dt;
+    racer.wheelAssemblies.forEach((w) => {
+      w.spinGroup.rotation.x += rollDelta;
+    });
+
+    // D. Chassis Roll (Centrifugal Bank in Turns) & Pitch (Acceleration Squat / Braking Dive)
+    const targetChassisRoll = racer.drifting ? racer.driftDir * 0.12 : -steer * 0.08;
+    const targetChassisPitch = throttle > 0 ? -0.05 : throttle < 0 ? 0.08 : 0;
+    racer.chassisGroup.rotation.z = THREE.MathUtils.lerp(racer.chassisGroup.rotation.z, targetChassisRoll, dt * 8);
+    racer.chassisGroup.rotation.x = THREE.MathUtils.lerp(racer.chassisGroup.rotation.x, targetChassisPitch, dt * 8);
+
+    // E. Driver Body Bank & Hang-off Lean into Turns
+    const targetDriverLean = steer * 0.28 + (racer.drifting ? racer.driftDir * 0.22 : 0);
+    racer.driverGroup.rotation.z = THREE.MathUtils.lerp(racer.driverGroup.rotation.z, targetDriverLean, dt * 10);
+
+    // Track Progress & Lap Check
     const prevSample = racer.sampleIdx;
     const newSampleIdx = this.findClosestTrackSample(racer.pos, prevSample);
     racer.sampleIdx = newSampleIdx;
     const sample = this.trackSamples[newSampleIdx];
 
-    // Lap Crossing
     const N = this.trackSamples.length;
     if (prevSample > N * 0.8 && newSampleIdx < N * 0.2 && racer.maxSampleReached > N * 0.65) {
       racer.lap++;
@@ -1360,6 +2021,7 @@ class KartGameEngine {
     }
     racer.totalProgress = racer.lap - 1 + newSampleIdx / N;
 
+    // Wrong-Way Lakitu Warning
     if (racer.isPlayer && this.state === 'RACING') {
       const forwardVec = new THREE.Vector3(Math.sin(racer.heading), 0, Math.cos(racer.heading));
       const dot = forwardVec.dot(sample.tangent);
@@ -1374,7 +2036,7 @@ class KartGameEngine {
       }
     }
 
-    // Wall Crash & Bounce Physics
+    // Physical Wall Collision & Ricochet Bounce
     const offsetVec = racer.pos.clone().sub(sample.point);
     offsetVec.y = 0;
     const lateralDist = offsetVec.dot(sample.normal);
@@ -1403,6 +2065,50 @@ class KartGameEngine {
     racer.mesh.rotation.y = racer.heading + visualDriftYaw;
   }
 
+  // ==================== SLIPSTREAM (DRAFTING) SYSTEM ====================
+  updateSlipstream(dt) {
+    if (!this.player || this.state !== 'RACING') return;
+
+    let inDraft = false;
+    const pPos = this.player.pos;
+    const pFwd = new THREE.Vector3(Math.sin(this.player.heading), 0, Math.cos(this.player.heading));
+
+    for (const other of this.racers) {
+      if (other === this.player || other.speed < 40) continue;
+
+      const toOther = other.pos.clone().sub(pPos);
+      toOther.y = 0;
+      const forwardDist = toOther.dot(pFwd);
+      const perpDist = Math.abs(toOther.cross(pFwd).y);
+
+      // Directly behind rival between 8m and 35m, lateral distance < 3.2m
+      if (forwardDist > 8 && forwardDist < 35 && perpDist < 3.2 && this.player.speed > 50) {
+        inDraft = true;
+        this.player.draftTarget = other;
+        break;
+      }
+    }
+
+    const banner = document.getElementById('slipstream-banner');
+    if (inDraft) {
+      this.player.draftTimer += dt;
+      if (this.player.draftTimer > 1.3) {
+        // Trigger Slipstream Super Boost!
+        this.player.draftTimer = 0;
+        this.triggerBoost(this.player, 2.5, 32);
+        window.soundEngine.sfxSlipstream();
+        if (banner) {
+          banner.classList.remove('hidden');
+          setTimeout(() => banner.classList.add('hidden'), 1500);
+        }
+        this.showTicker('💨 スリップストリーム急加速発動！！ライバルを一気に追い抜け！');
+      }
+    } else {
+      this.player.draftTimer = Math.max(0, this.player.draftTimer - dt * 2.0);
+    }
+  }
+
+  // ==================== RACER COLLISIONS & ITEM DRAG GUARD ====================
   updateRacerCollisions() {
     for (let i = 0; i < this.racers.length; i++) {
       for (let j = i + 1; j < this.racers.length; j++) {
@@ -1411,7 +2117,7 @@ class KartGameEngine {
         const dx = b.pos.x - a.pos.x;
         const dz = b.pos.z - a.pos.z;
         const distSq = dx * dx + dz * dz;
-        const minDist = 3.5;
+        const minDist = 3.6;
 
         if (distSq < minDist * minDist && distSq > 0.001) {
           const dist = Math.sqrt(distSq);
@@ -1448,6 +2154,7 @@ class KartGameEngine {
     }
   }
 
+  // ==================== PROJECTILES & ITEM GUARD DEFENSE ====================
   updateProjectiles(dt) {
     let incomingThreat = false;
 
@@ -1519,7 +2226,7 @@ class KartGameEngine {
           }
 
           if (target) {
-            if (target.isPlayer && target.pos.distanceTo(p.pos) < 90) {
+            if (target.isPlayer && target.pos.distanceTo(p.pos) < 95) {
               incomingThreat = true;
             }
             const toTarget = target.pos.clone().sub(p.pos);
@@ -1567,9 +2274,33 @@ class KartGameEngine {
         }
       }
 
+      // Check collision against racers & Item Drag Guard Defenses!
       let hitSomeone = false;
       for (const r of this.racers) {
         if (r === p.owner && p.life > (p.type === 'BANANA' ? 34.4 : 17.5)) continue;
+
+        // AUTHENTIC ITEM GUARD DEFENSE:
+        // If racer is dragging an item behind (isHoldingItem === true), check collision with held item first!
+        if (r.isHoldingItem && r.itemSlot1) {
+          const heldPos = r.pos.clone().add(
+            new THREE.Vector3(-Math.sin(r.heading) * 3.2, 0.8, -Math.cos(r.heading) * 3.2)
+          );
+          if (heldPos.distanceTo(p.pos) < p.radius + 1.6) {
+            // Guard success! Block the incoming shell/banana!
+            window.soundEngine.sfxGuardBlock();
+            this.spawnExplosionVisual(heldPos, 0xffaa00, 8);
+            r.isHoldingItem = false;
+            r.itemSlot1 = r.itemSlot2;
+            r.itemSlot2 = null;
+            this.updateHeldItemVisual(r);
+            if (r.isPlayer) {
+              this.showTicker('🛡️ アイテムガード成功！！後方からのこうらを完全防御！');
+              this.updateItemHUD();
+            }
+            hitSomeone = true;
+            break;
+          }
+        }
 
         const dist = r.pos.distanceTo(p.pos);
         if (dist < p.radius + 1.8) {
@@ -1597,9 +2328,9 @@ class KartGameEngine {
 
   explodeBobOmb(centerPos) {
     window.soundEngine.sfxExplosion();
-    this.spawnExplosionVisual(centerPos, 0xff5500, 15);
+    this.spawnExplosionVisual(centerPos, 0xff5500, 16);
     this.racers.forEach((r) => {
-      if (r.pos.distanceTo(centerPos) < 16.5) {
+      if (r.pos.distanceTo(centerPos) < 17.5) {
         this.hitRacer(r, '大爆発');
         r.velY = 18;
       }
@@ -1607,6 +2338,7 @@ class KartGameEngine {
   }
 
   updateGimmicksAndPickups(dt, elapsed) {
+    // 1. Question Mark Item Boxes (Authentic Hit -> Shatter -> Roulette)
     this.itemBoxes.forEach((box) => {
       if (!box.active) {
         box.respawnTimer -= dt;
@@ -1616,23 +2348,23 @@ class KartGameEngine {
         }
         return;
       }
-      box.mesh.rotation.y += dt * 2.4;
-      box.mesh.rotation.x += dt * 1.5;
-      box.mesh.position.y = box.basePos.y + Math.sin(elapsed * 3 + box.basePos.x) * 0.45;
+      box.mesh.rotation.y += dt * 2.5;
+      box.mesh.rotation.x += dt * 1.6;
+      box.mesh.position.y = box.basePos.y + Math.sin(elapsed * 3.2 + box.basePos.x) * 0.45;
 
       for (const r of this.racers) {
-        if (r.pos.distanceTo(box.basePos) < 3.8) {
+        if (r.pos.distanceTo(box.basePos) < 4.0) {
           box.active = false;
           box.mesh.visible = false;
-          box.respawnTimer = 2.5;
-          if (!r.currentItem && r.rouletteTimer <= 0) {
-            r.rouletteTimer = r.isPlayer ? 0.75 : 0.2;
-          }
+          box.respawnTimer = 2.8;
+          this.triggerItemBoxHit(r, box.isDouble);
+          this.spawnSparkBurst(box.basePos, box.isDouble ? 0x00f2ff : 0xffe600);
           break;
         }
       }
     });
 
+    // 2. Track Coins
     this.coinPickups.forEach((coin) => {
       if (!coin.active) {
         coin.respawnTimer -= dt;
@@ -1656,6 +2388,44 @@ class KartGameEngine {
       }
     });
 
+    // 3. Dropped Coins (Bounce and can be recollected)
+    for (let i = this.droppedCoins.length - 1; i >= 0; i--) {
+      const c = this.droppedCoins[i];
+      c.life -= dt;
+      if (c.life <= 0) {
+        this.worldGroup.remove(c.mesh);
+        this.droppedCoins.splice(i, 1);
+        continue;
+      }
+
+      c.pos.x += c.velX * dt;
+      c.pos.z += c.velZ * dt;
+      c.velX *= 0.94;
+      c.velZ *= 0.94;
+
+      if (c.pos.y > 0.5 || c.velY > 0) {
+        c.pos.y += c.velY * dt;
+        c.velY -= 38 * dt;
+        if (c.pos.y <= 0.5) {
+          c.pos.y = 0.5;
+          c.velY = -c.velY * 0.5;
+        }
+      }
+      c.mesh.rotation.y += dt * 5.0;
+
+      // Check pickup
+      for (const r of this.racers) {
+        if (r.pos.distanceTo(c.pos) < 3.0) {
+          r.coins = Math.min(10, r.coins + 1);
+          if (r.isPlayer) window.soundEngine.sfxCoin();
+          this.worldGroup.remove(c.mesh);
+          this.droppedCoins.splice(i, 1);
+          break;
+        }
+      }
+    }
+
+    // 4. Course Gimmicks
     this.gimmicks.forEach((g) => {
       if (g.type === 'BOOST_PAD') {
         this.racers.forEach((r) => {
@@ -1667,11 +2437,10 @@ class KartGameEngine {
       } else if (g.type === 'JUMP_RAMP') {
         this.racers.forEach((r) => {
           if (r.pos.distanceTo(g.pos) < g.radius && r.pos.y < 1.5) {
-            r.velY = 25;
+            r.velY = 26;
             this.triggerBoost(r, 1.4, 26);
             if (r.isPlayer) {
               window.soundEngine.sfxBoost();
-              this.showTicker('✈️ ジャンピングアクション成功！！');
             }
           }
         });
@@ -1840,36 +2609,84 @@ class KartGameEngine {
     this.camera.updateProjectionMatrix();
   }
 
+  // ==================== HUD UPDATES: DOUBLE ITEM SLOTS & STATS ====================
   updateItemHUD() {
     if (!this.player) return;
-    const iconEl = document.getElementById('hud-item-icon');
-    const nameEl = document.getElementById('hud-item-name');
-    const countEl = document.getElementById('hud-item-count');
 
-    if (this.player.rouletteTimer > 0) {
-      const icons = ['🍌', '🟢', '🔴', '🍄', '💣', '⭐', '⚡', '🌌'];
-      iconEl.textContent = icons[Math.floor(performance.now() / 60) % icons.length];
-      nameEl.textContent = 'ルーレット回転中...';
-      countEl.classList.add('hidden');
-    } else if (this.player.currentItem) {
-      iconEl.textContent = this.player.currentItem.icon;
-      nameEl.textContent = this.player.currentItem.name;
-      if (this.player.itemUsesLeft > 1 && this.player.itemUsesLeft < 50) {
-        countEl.textContent = `×${this.player.itemUsesLeft}`;
-        countEl.classList.remove('hidden');
+    const frame1 = document.getElementById('hud-frame-1');
+    const icon1 = document.getElementById('hud-item-icon-1');
+    const count1 = document.getElementById('hud-item-count-1');
+    const name1 = document.getElementById('hud-item-name-1');
+
+    const frame2 = document.getElementById('hud-frame-2');
+    const icon2 = document.getElementById('hud-item-icon-2');
+    const count2 = document.getElementById('hud-item-count-2');
+    const guardBadge = document.getElementById('hud-guard-badge');
+
+    const icons = ['🍌', '🟢', '🔴', '🍄', '💣', '⭐', '⚡', '🌌'];
+
+    // Slot 1
+    if (this.player.rouletteTimer1 > 0) {
+      frame1.classList.add('roulette');
+      icon1.classList.remove('empty');
+      icon1.textContent = icons[Math.floor(performance.now() / 60) % icons.length];
+      count1.classList.add('hidden');
+      name1.classList.remove('hidden');
+      name1.textContent = 'ルーレット回転中...';
+    } else if (this.player.itemSlot1) {
+      frame1.classList.remove('roulette');
+      icon1.classList.remove('empty');
+      icon1.textContent = this.player.itemSlot1.def.icon;
+      name1.classList.remove('hidden');
+      name1.textContent = this.player.itemSlot1.def.name;
+      if (this.player.itemSlot1.usesLeft > 1 && this.player.itemSlot1.usesLeft < 50) {
+        count1.textContent = `×${this.player.itemSlot1.usesLeft}`;
+        count1.classList.remove('hidden');
       } else {
-        countEl.classList.add('hidden');
+        count1.classList.add('hidden');
       }
     } else {
-      iconEl.textContent = '❓';
-      nameEl.textContent = 'アイテムなし (Vキーで即補充)';
-      countEl.classList.add('hidden');
+      frame1.classList.remove('roulette');
+      icon1.classList.add('empty');
+      icon1.textContent = '';
+      count1.classList.add('hidden');
+      name1.classList.add('hidden');
+    }
+
+    // Slot 2 (Reserve Item)
+    if (this.player.rouletteTimer2 > 0) {
+      frame2.classList.add('roulette');
+      icon2.classList.remove('empty');
+      icon2.textContent = icons[Math.floor((performance.now() + 100) / 60) % icons.length];
+      count2.classList.add('hidden');
+    } else if (this.player.itemSlot2) {
+      frame2.classList.remove('roulette');
+      icon2.classList.remove('empty');
+      icon2.textContent = this.player.itemSlot2.def.icon;
+      if (this.player.itemSlot2.usesLeft > 1 && this.player.itemSlot2.usesLeft < 50) {
+        count2.textContent = `×${this.player.itemSlot2.usesLeft}`;
+        count2.classList.remove('hidden');
+      } else {
+        count2.classList.add('hidden');
+      }
+    } else {
+      frame2.classList.remove('roulette');
+      icon2.classList.add('empty');
+      icon2.textContent = '';
+      count2.classList.add('hidden');
+    }
+
+    // Guard Badge (Item holding behind)
+    if (guardBadge) {
+      guardBadge.classList.toggle('hidden', !this.player.isHoldingItem);
     }
   }
 
   updateHUD(sortedRacers) {
     if (!this.player) return;
-    if (this.player.rouletteTimer > 0) this.updateItemHUD();
+    if (this.player.rouletteTimer1 > 0 || this.player.rouletteTimer2 > 0) {
+      this.updateItemHUD();
+    }
 
     document.getElementById('hud-lap').textContent = `${Math.min(this.player.lap, this.totalLaps)} / ${this.totalLaps}`;
     const mins = Math.floor(this.raceTime / 60);
@@ -1909,7 +2726,7 @@ class KartGameEngine {
         (r) => `
       <div class="standing-row ${r.isPlayer ? 'is-player' : ''}">
         <span>${r.rank}. ${r.shortName}</span>
-        <span>${r.currentItem ? r.currentItem.icon : ''}🪙${r.coins}</span>
+        <span>${r.itemSlot1 ? r.itemSlot1.def.icon : ''}${r.itemSlot2 ? r.itemSlot2.def.icon : ''} 🪙${r.coins}</span>
       </div>
     `
       )
@@ -1971,7 +2788,6 @@ class KartGameEngine {
     this.countdownTimer = 0.95;
     this.rocketCharge = 0;
 
-    // Position camera immediately behind player so there's no jarring jump
     if (this.player) {
       this.camera.position.set(
         this.player.pos.x - Math.sin(this.player.heading) * 15,
@@ -2034,6 +2850,7 @@ class KartGameEngine {
       }
 
       this.racers.forEach((r) => this.updateRacerPhysics(r, dt));
+      this.updateSlipstream(dt);
       this.updateRacerCollisions();
       this.updateProjectiles(dt);
       this.updateGimmicksAndPickups(dt, elapsed);
@@ -2065,7 +2882,6 @@ class UIFlowController {
     this.game = game;
     this.initSelectScreens();
 
-    // Automatically transition from Red Boot Splash to Authentic 3D Title Screen after 1.4s
     this.bootTimer = setTimeout(() => {
       this.skipBoot();
     }, 1400);
@@ -2321,17 +3137,23 @@ window.addEventListener('DOMContentLoaded', () => {
           try {
             const titleActive = document.getElementById('screen-title').classList.contains('active');
             window.uiFlow.openMainMenu();
-            window.uiFlow.selectMode('mayhem');
-            window.uiFlow.pickDriver(4); // Bowser
+            window.uiFlow.selectMode('gp');
+            window.uiFlow.pickDriver(0); // Mario
             window.uiFlow.goToCourseSelect();
             window.uiFlow.startRaceNow();
-            window.game.spawnChaosWave();
+
+            // Hit item box to test roulette and item collection
+            const box = window.game.itemBoxes[0];
+            if (box && window.game.player) {
+              window.game.triggerItemBoxHit(window.game.player, true);
+            }
+
             ipcRenderer.send('smoke-test-result', {
               ok: true,
               titleTransitioned: titleActive,
               framesRendered: window.game.frameCount,
               racersCount: window.game.racers.length,
-              projectilesCount: window.game.projectiles.length,
+              playerHasModelDetails: Boolean(window.game.player && window.game.player.wheelAssemblies.length === 4),
               state: window.game.state
             });
           } catch (err) {

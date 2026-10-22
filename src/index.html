@@ -157,26 +157,40 @@
 
   <!-- ================= 5. IN-RACE HUD OVERLAY ================= -->
   <div id="screen-hud" class="screen pointer-none">
-    <!-- Top Left: Item Roulette Box & Secondary Item / Chaos Spawner -->
+    <!-- Top Left: Item Roulette Box & Secondary Item (Double Item System MK8DX Style) -->
     <div class="hud-top-left">
-      <div class="item-slot-main" id="hud-item-box">
-        <div class="item-slot-frame">
-          <div id="hud-item-icon" class="item-icon-display">❓</div>
-          <div id="hud-item-count" class="item-count-badge hidden">×3</div>
+      <div class="double-item-container">
+        <!-- Slot 1 (Active) -->
+        <div class="item-slot-main" id="hud-item-box-1">
+          <div class="item-slot-frame" id="hud-frame-1">
+            <div id="hud-item-icon-1" class="item-icon-display empty"></div>
+            <div id="hud-item-count-1" class="item-count-badge hidden">×3</div>
+          </div>
+          <div id="hud-item-name-1" class="item-name-label hidden"></div>
         </div>
-        <div id="hud-item-name" class="item-name-label">アイテムなし</div>
+        <!-- Slot 2 (Reserve) -->
+        <div class="item-slot-sub" id="hud-item-box-2">
+          <div class="item-slot-frame-sub" id="hud-frame-2">
+            <div id="hud-item-icon-2" class="item-icon-display-sub empty"></div>
+            <div id="hud-item-count-2" class="item-count-badge-sub hidden">×3</div>
+          </div>
+        </div>
       </div>
 
+      <!-- Item Status / Guard & Action Hint -->
       <div class="item-throw-hint">
-        <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム前投げ・発射</div>
-        <div><kbd>X</kbd> / <kbd>↓+Space</kbd>: <strong>後ろにバナナ設置・後方発射</strong></div>
-        <div><kbd>C</kbd>: バナナ＆壁反射こうら一斉大量放出！ | <kbd>V</kbd>: 即アイテム補充</div>
+        <div id="hud-guard-badge" class="guard-badge hidden">🛡️ アイテム後ろ引きずり防御中 (後方こうらガード)</div>
+        <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム使用 / 前投げ （長押しで後ろ引きずりガード）</div>
+        <div><kbd>X</kbd> / <kbd>↓+Space</kbd>: 後ろにバナナ設置 / 後方へこうら発射</div>
+        <div>ジャンプ台の先端で <kbd>Shift</kbd> / <kbd>Ctrl</kbd>: <strong>ジャンプアクション（着地ダッシュ）</strong></div>
       </div>
     </div>
 
     <!-- Top Center: Course Banner / Countdown / Lap Notice / Event Ticker -->
     <div class="hud-top-center">
       <div id="countdown-banner" class="countdown-banner hidden">3</div>
+      <div id="trick-banner" class="trick-banner hidden">✨ TRICK ACTION!!</div>
+      <div id="slipstream-banner" class="slipstream-banner hidden">💨 SLIPSTREAM!!</div>
       <div id="event-ticker" class="event-ticker"></div>
     </div>
 
@@ -193,8 +207,6 @@
         </div>
       </div>
       <div class="hud-quick-btns">
-        <button class="hud-mini-btn" onclick="window.game.spawnChaosWave()" title="コース上に大量のバナナと反射こうらを降らせる！">🍌🟢 カオス大量投下 (C)</button>
-        <button class="hud-mini-btn" onclick="window.game.givePlayerSuperItem()" title="今すぐ強力アイテムを補充！">🎁 即アイテム補充 (V)</button>
         <button class="hud-mini-btn" onclick="window.uiFlow.togglePause()">⏸ ポーズ (ESC)</button>
       </div>
     </div>

@@ -148,6 +148,27 @@ class SoundEngine {
     this.playTone(420, 0.12, 'triangle', 0.13, 200);
   }
 
+  sfxBoxBreak() {
+    this.playTone(1200, 0.08, 'triangle', 0.18, 1600);
+    this.playNoise(0.12, 0.14, 2800);
+    this.playTone(1500, 0.12, 'square', 0.12, null, 0.04);
+  }
+
+  sfxTrick() {
+    this.playTone(880, 0.09, 'square', 0.16, 1320);
+    this.playTone(1320, 0.14, 'triangle', 0.18, 1760, 0.06);
+  }
+
+  sfxSlipstream() {
+    this.playNoise(0.4, 0.22, 1100);
+    this.playTone(440, 0.35, 'sawtooth', 0.15, 880);
+  }
+
+  sfxGuardBlock() {
+    this.playNoise(0.15, 0.25, 600);
+    this.playTone(550, 0.15, 'sawtooth', 0.2, 180);
+  }
+
   sfxWallHit() {
     this.playNoise(0.18, 0.22, 420);
     this.playTone(130, 0.16, 'sawtooth', 0.18, 55);
