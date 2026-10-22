@@ -1153,9 +1153,10 @@ class KartGameEngine {
       const kartMod = karts[isPlayer ? this.selectedKartIdx : i % karts.length].bodyMod;
       const built = this.createKartMesh(d, isPlayer ? this.selectedKartIdx : i % karts.length);
 
-      const sampleIdx = (this.trackSamples.length - 8 - i * 3) % this.trackSamples.length;
+      // Starting grid placement with generous spacing to avoid pile-up on start
+      const sampleIdx = Math.floor((this.trackSamples.length - 12 - i * 5 + this.trackSamples.length) % this.trackSamples.length);
       const sample = this.trackSamples[sampleIdx];
-      const lateralOffset = i % 2 === 0 ? -5.5 : 5.5;
+      const lateralOffset = i % 2 === 0 ? -6.5 : 6.5;
       const startPos = sample.point.clone().addScaledVector(sample.normal, lateralOffset);
       const heading = Math.atan2(sample.tangent.x, sample.tangent.z);
 
@@ -1163,8 +1164,9 @@ class KartGameEngine {
       built.root.rotation.y = heading;
       this.worldGroup.add(built.root);
 
-      const ccMultiplier = this.ccClass === 200 ? 1.25 : this.ccClass === 100 ? 0.88 : 1.05;
-      const baseMaxSpeed = (88 + (d.stats.speed + kartMod.speed) * 4.2) * ccMultiplier;
+      // Tuned Speed: Extremely controllable, smooth and pleasant (Prevents uncontrollable speed!)
+      const ccMultiplier = this.ccClass === 200 ? 1.2 : this.ccClass === 100 ? 0.85 : 1.0;
+      const baseMaxSpeed = (54 + (d.stats.speed + kartMod.speed) * 2.4) * ccMultiplier;
 
       const racer = {
         id: i,
@@ -1186,14 +1188,14 @@ class KartGameEngine {
         heldItemGroup: built.heldItemGroup,
         exhaustPipes: built.exhaustPipes,
 
-        // Dynamics
+        // Dynamics - Significantly upgraded handling for effortless cornering
         pos: startPos.clone(),
         velY: 0,
         heading,
         speed: 0,
         maxSpeed: baseMaxSpeed,
-        accelStat: 40 + (d.stats.accel + kartMod.accel) * 4.8,
-        handlingStat: 2.15 + (d.stats.handling + kartMod.handling) * 0.18,
+        accelStat: 32 + (d.stats.accel + kartMod.accel) * 3.6,
+        handlingStat: 2.85 + (d.stats.handling + kartMod.handling) * 0.25, // Much sharper, responsive steering
         weightStat: d.stats.weight,
 
         // Drift & Mini-Turbo
@@ -1840,7 +1842,11 @@ class KartGameEngine {
       }
     } else if (this.state === 'RACING') {
       if (this.keys['KeyW'] || this.keys['ArrowUp']) throttle = 1;
-      if (this.keys['KeyS'] || this.keys['ArrowDown']) throttle = -0.65;
+      if (this.keys['KeyS'] || this.keys['ArrowDown']) {
+        // バック機能を完全に廃止！S/下キーは純粋な減速ブレーキ！
+        throttle = 0;
+        racer.speed = Math.max(0, racer.speed - racer.accelStat * 2.8 * dt);
+      }
       if (this.keys['KeyA'] || this.keys['ArrowLeft']) steer += 1;
       if (this.keys['KeyD'] || this.keys['ArrowRight']) steer -= 1;
       wantDrift = Boolean(this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.keys['ControlLeft'] || this.keys['KeyK']);
@@ -1856,9 +1862,9 @@ class KartGameEngine {
     let topSpeed = racer.maxSpeed * coinBonus;
     if (racer.shrunkTimer > 0) topSpeed *= 0.68;
     if (racer.flattenedTimer > 0) topSpeed *= 0.55;
-    if (racer.starTimer > 0) topSpeed += 25;
-    if (racer.overdriveTimer > 0) topSpeed += 34;
-    if (racer.bulletTimer > 0) topSpeed = 180;
+    if (racer.starTimer > 0) topSpeed += 20;
+    if (racer.overdriveTimer > 0) topSpeed += 24;
+    if (racer.bulletTimer > 0) topSpeed = 110;
     if (racer.boostTimer > 0) topSpeed += racer.boostPower;
 
     // Check Off-Road Dirt Penalty (Slows down unless Star / Bullet / Boost active!)
@@ -1868,28 +1874,26 @@ class KartGameEngine {
     const latDist = Math.abs(offVec.dot(closestSample.normal));
     const isOffRoad = latDist > this.trackWidth * 0.95;
     if (isOffRoad && racer.boostTimer <= 0 && racer.starTimer <= 0 && racer.bulletTimer <= 0) {
-      topSpeed *= 0.45;
+      topSpeed *= 0.55;
     }
 
-    // Acceleration & Drag
+    // Acceleration & Drag (Minimum speed is strictly 0: NO REVERSING)
     if (throttle > 0) {
       racer.speed += racer.accelStat * throttle * dt;
       if (racer.boostTimer > 0 || racer.bulletTimer > 0) {
         racer.speed = Math.max(racer.speed, topSpeed * 0.94);
       }
-    } else if (throttle < 0) {
-      racer.speed += racer.accelStat * 1.3 * throttle * dt;
     } else {
-      racer.speed *= Math.pow(0.45, dt);
+      racer.speed *= Math.pow(0.5, dt);
     }
 
     if (racer.speed > topSpeed) {
       racer.speed = THREE.MathUtils.lerp(racer.speed, topSpeed, dt * 4.5);
     }
-    if (racer.speed < -35) racer.speed = -35;
+    racer.speed = Math.max(0, racer.speed); // Strict forward only: zero reverse
 
     // Authentic 3-Stage Drift Mini-Turbo (Blue -> Orange -> Purple Ultra)
-    if (wantDrift && racer.speed > 42 && Math.abs(steer) > 0.1 && racer.pos.y <= 0.25) {
+    if (wantDrift && racer.speed > 30 && Math.abs(steer) > 0.1 && racer.pos.y <= 0.25) {
       if (!racer.drifting) {
         racer.drifting = true;
         racer.driftDir = Math.sign(steer);
@@ -1907,13 +1911,13 @@ class KartGameEngine {
     } else if (racer.drifting) {
       // Release Drift -> Turbo Boost!
       if (racer.driftLevel === 1) {
-        this.triggerBoost(racer, 0.9, 22);
+        this.triggerBoost(racer, 0.9, 16);
         if (racer.isPlayer) window.soundEngine.sfxBoost();
       } else if (racer.driftLevel === 2) {
-        this.triggerBoost(racer, 1.5, 29);
+        this.triggerBoost(racer, 1.5, 22);
         if (racer.isPlayer) window.soundEngine.sfxBoost();
       } else if (racer.driftLevel === 3) {
-        this.triggerBoost(racer, 2.3, 36);
+        this.triggerBoost(racer, 2.3, 28);
         if (racer.isPlayer) {
           window.soundEngine.sfxBoost();
           this.showTicker('🟣 ウルトラミニターボ解放！！');
@@ -1935,11 +1939,11 @@ class KartGameEngine {
       racer.sparkMat.opacity = 0;
     }
 
-    // Steering & Heading
-    const turnRate = racer.handlingStat * (racer.drifting ? 1.28 : 1.0);
-    if (Math.abs(racer.speed) > 1.5) {
-      const effectiveSteer = racer.drifting ? steer * 0.7 + racer.driftDir * 0.55 : steer;
-      racer.heading += effectiveSteer * turnRate * dt * Math.sign(racer.speed);
+    // Steering & Heading - High responsiveness for sharp, effortless cornering
+    const turnRate = racer.handlingStat * (racer.drifting ? 1.35 : 1.15);
+    if (racer.speed > 0.5) {
+      const effectiveSteer = racer.drifting ? steer * 0.75 + racer.driftDir * 0.65 : steer;
+      racer.heading += effectiveSteer * turnRate * dt;
     }
 
     // Move forward
@@ -1956,7 +1960,7 @@ class KartGameEngine {
         // If landed after performing a Jump Action trick -> Trigger Trick Landing Boost!
         if (racer.trickPerformed) {
           racer.trickPerformed = false;
-          this.triggerBoost(racer, 1.2, 28);
+          this.triggerBoost(racer, 1.2, 22);
           if (racer.isPlayer) window.soundEngine.sfxBoost();
         }
       }
@@ -1980,7 +1984,7 @@ class KartGameEngine {
 
     // D. Chassis Roll (Centrifugal Bank in Turns) & Pitch (Acceleration Squat / Braking Dive)
     const targetChassisRoll = racer.drifting ? racer.driftDir * 0.12 : -steer * 0.08;
-    const targetChassisPitch = throttle > 0 ? -0.05 : throttle < 0 ? 0.08 : 0;
+    const targetChassisPitch = throttle > 0 ? -0.05 : 0;
     racer.chassisGroup.rotation.z = THREE.MathUtils.lerp(racer.chassisGroup.rotation.z, targetChassisRoll, dt * 8);
     racer.chassisGroup.rotation.x = THREE.MathUtils.lerp(racer.chassisGroup.rotation.x, targetChassisPitch, dt * 8);
 
@@ -1993,6 +1997,15 @@ class KartGameEngine {
     const newSampleIdx = this.findClosestTrackSample(racer.pos, prevSample);
     racer.sampleIdx = newSampleIdx;
     const sample = this.trackSamples[newSampleIdx];
+
+    // Smart Direction Guard (逆走機能を完全に排除・常にコース進行方向へアシスト)
+    const trackAngle = Math.atan2(sample.tangent.x, sample.tangent.z);
+    let headingDiff = racer.heading - trackAngle;
+    while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
+    while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
+    if (Math.abs(headingDiff) > Math.PI * 0.42) {
+      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 6.0);
+    }
 
     const N = this.trackSamples.length;
     if (prevSample > N * 0.8 && newSampleIdx < N * 0.2 && racer.maxSampleReached > N * 0.65) {
@@ -2021,22 +2034,7 @@ class KartGameEngine {
     }
     racer.totalProgress = racer.lap - 1 + newSampleIdx / N;
 
-    // Wrong-Way Lakitu Warning
-    if (racer.isPlayer && this.state === 'RACING') {
-      const forwardVec = new THREE.Vector3(Math.sin(racer.heading), 0, Math.cos(racer.heading));
-      const dot = forwardVec.dot(sample.tangent);
-      if (dot < -0.35 && racer.speed > 15) {
-        racer.wrongWayTimer += dt;
-      } else {
-        racer.wrongWayTimer = 0;
-      }
-      const lakituEl = document.getElementById('lakitu-banner');
-      if (lakituEl) {
-        lakituEl.classList.toggle('hidden', racer.wrongWayTimer < 0.7);
-      }
-    }
-
-    // Physical Wall Collision & Ricochet Bounce
+    // Physical Wall Collision & Wall Slide (壁に激突しても止まらずに滑らかに前進し続けるウォールスライド！)
     const offsetVec = racer.pos.clone().sub(sample.point);
     offsetVec.y = 0;
     const lateralDist = offsetVec.dot(sample.normal);
@@ -2048,16 +2046,11 @@ class KartGameEngine {
       racer.pos.x = clampedPt.x;
       racer.pos.z = clampedPt.z;
 
-      if (Math.abs(racer.speed) > 25) {
-        racer.speed *= 0.8;
-        const trackAngle = Math.atan2(sample.tangent.x, sample.tangent.z);
-        let angleDiff = trackAngle - racer.heading;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        racer.heading += angleDiff * 0.35;
-        this.spawnSparkBurst(racer.pos, 0xffaa00);
-        if (racer.isPlayer) window.soundEngine.sfxWallHit();
-      }
+      // 壁に当たっても止まらない！スピードを最低26km/h維持して滑走
+      racer.speed = Math.max(racer.speed * 0.96, 26);
+      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 6.5);
+      this.spawnSparkBurst(racer.pos, 0xffaa00);
+      if (racer.isPlayer) window.soundEngine.sfxWallHit();
     }
 
     racer.mesh.position.copy(racer.pos);
@@ -2110,6 +2103,7 @@ class KartGameEngine {
 
   // ==================== RACER COLLISIONS & ITEM DRAG GUARD ====================
   updateRacerCollisions() {
+    const isStartPhase = this.raceTime < 4.0; // スタート後4秒間はカート同士の挟まり・動かなくなるバグを完全防止するソフトコリジョン
     for (let i = 0; i < this.racers.length; i++) {
       for (let j = i + 1; j < this.racers.length; j++) {
         const a = this.racers[i];
@@ -2117,38 +2111,37 @@ class KartGameEngine {
         const dx = b.pos.x - a.pos.x;
         const dz = b.pos.z - a.pos.z;
         const distSq = dx * dx + dz * dz;
-        const minDist = 3.6;
+        const minDist = isStartPhase ? 2.6 : 3.2;
 
         if (distSq < minDist * minDist && distSq > 0.001) {
           const dist = Math.sqrt(distSq);
           const nx = dx / dist;
           const nz = dz / dist;
-          const overlap = (minDist - dist) * 0.55;
+          const overlap = (minDist - dist) * (isStartPhase ? 0.15 : 0.35);
 
           if ((a.starTimer > 0 || a.bulletTimer > 0) && b.starTimer <= 0) {
             this.hitRacer(b, 'スター体当たり');
-            b.pos.x += nx * 7;
-            b.pos.z += nz * 7;
+            b.pos.x += nx * 6;
+            b.pos.z += nz * 6;
             continue;
           }
           if ((b.starTimer > 0 || b.bulletTimer > 0) && a.starTimer <= 0) {
             this.hitRacer(a, 'スター体当たり');
-            a.pos.x -= nx * 7;
-            a.pos.z -= nz * 7;
+            a.pos.x -= nx * 6;
+            a.pos.z -= nz * 6;
             continue;
           }
 
           if (a.antiGravityTimer > 0 || b.antiGravityTimer > 0) {
-            this.triggerBoost(a, 0.9, 22);
-            this.triggerBoost(b, 0.9, 22);
+            this.triggerBoost(a, 0.9, 18);
+            this.triggerBoost(b, 0.9, 18);
           }
 
-          const weightRatioA = b.weightStat / (a.weightStat + b.weightStat);
-          const weightRatioB = a.weightStat / (a.weightStat + b.weightStat);
-          a.pos.x -= nx * overlap * weightRatioA * 2.2;
-          a.pos.z -= nz * overlap * weightRatioA * 2.2;
-          b.pos.x += nx * overlap * weightRatioB * 2.2;
-          b.pos.z += nz * overlap * weightRatioB * 2.2;
+          // 安定したソフト分離（挟まり・スタック・振動を完全に解消）
+          a.pos.x -= nx * overlap * 0.5;
+          a.pos.z -= nz * overlap * 0.5;
+          b.pos.x += nx * overlap * 0.5;
+          b.pos.z += nz * overlap * 0.5;
         }
       }
     }
@@ -3148,18 +3141,31 @@ window.addEventListener('DOMContentLoaded', () => {
               window.game.triggerItemBoxHit(window.game.player, true);
             }
 
-            ipcRenderer.send('smoke-test-result', {
-              ok: true,
-              titleTransitioned: titleActive,
-              framesRendered: window.game.frameCount,
-              racersCount: window.game.racers.length,
-              playerHasModelDetails: Boolean(window.game.player && window.game.player.wheelAssemblies.length === 4),
-              state: window.game.state
-            });
+            // Test inputs: throttle forward and steer right
+            window.game.keys['KeyW'] = true;
+            window.game.keys['KeyD'] = true;
+
+            setTimeout(() => {
+              // Test brake (no reverse)
+              window.game.keys['KeyW'] = false;
+              window.game.keys['KeyS'] = true;
+
+              setTimeout(() => {
+                const playerSpeed = window.game.player ? window.game.player.speed : 0;
+                ipcRenderer.send('smoke-test-result', {
+                  ok: true,
+                  titleTransitioned: titleActive,
+                  framesRendered: window.game.frameCount,
+                  racersCount: window.game.racers.length,
+                  playerSpeedNonNegative: playerSpeed >= 0,
+                  state: window.game.state
+                });
+              }, 400);
+            }, 600);
           } catch (err) {
             ipcRenderer.send('smoke-test-result', { ok: false, error: err.stack || String(err) });
           }
-        }, 1600);
+        }, 1200);
       });
     }
   } catch (err) {

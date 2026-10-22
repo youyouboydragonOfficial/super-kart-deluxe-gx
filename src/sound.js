@@ -9,6 +9,8 @@ class SoundEngine {
     this.engineGain = null;
     this.driftOsc = null;
     this.driftGain = null;
+    this.lastWallHitTime = 0;
+    this.lastCrashSoundTime = 0;
   }
 
   init() {
@@ -170,8 +172,11 @@ class SoundEngine {
   }
 
   sfxWallHit() {
-    this.playNoise(0.18, 0.22, 420);
-    this.playTone(130, 0.16, 'sawtooth', 0.18, 55);
+    const now = performance.now();
+    if (now - this.lastWallHitTime < 320) return; // Prevent sound spamming explosion
+    this.lastWallHitTime = now;
+    this.playNoise(0.12, 0.12, 420);
+    this.playTone(130, 0.12, 'triangle', 0.12, 55);
   }
 
   sfxExplosion() {
