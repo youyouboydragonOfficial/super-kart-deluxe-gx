@@ -625,70 +625,7 @@ class KartGameEngine {
 
     if (!this.extraGimmicks) return;
 
-    // 3. Giant Thwomps (ドッスン)
-    [58, 155, 255, 355].forEach((idx, i) => {
-      const s = this.trackSamples[idx];
-      const thwompGroup = new THREE.Group();
-      const bodyGeo = new THREE.BoxGeometry(10, 12, 6);
-      const bodyMat = new THREE.MeshLambertMaterial({ color: 0x556070 });
-      const body = new THREE.Mesh(bodyGeo, bodyMat);
-
-      const eyeGeo = new THREE.BoxGeometry(2.2, 1.5, 0.5);
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
-      const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-      eyeL.position.set(-2.3, 1.6, 3.1);
-      const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-      eyeR.position.set(2.3, 1.6, 3.1);
-      thwompGroup.add(body, eyeL, eyeR);
-
-      const angle = Math.atan2(s.tangent.x, s.tangent.z);
-      const pos = s.point.clone().addScaledVector(s.normal, i % 2 === 0 ? -8 : 8);
-      thwompGroup.position.set(pos.x, 17, pos.z);
-      thwompGroup.rotation.y = angle;
-      this.worldGroup.add(thwompGroup);
-
-      this.gimmicks.push({
-        type: 'THWOMP',
-        pos: new THREE.Vector3(pos.x, 0, pos.z),
-        mesh: thwompGroup,
-        phase: i * 1.6,
-        radius: 6.5,
-        isDown: false
-      });
-    });
-
-    // 4. Rotating Fire / Laser Bars
-    [112, 295].forEach((idx, i) => {
-      const s = this.trackSamples[idx];
-      const pivot = new THREE.Group();
-      pivot.position.set(s.point.x, 1.8, s.point.z);
-
-      const coreGeo = new THREE.CylinderGeometry(2.4, 2.4, 4.5, 12);
-      const coreMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-      pivot.add(new THREE.Mesh(coreGeo, coreMat));
-
-      const orbGeo = new THREE.SphereGeometry(1.5, 10, 10);
-      const orbMat = new THREE.MeshBasicMaterial({ color: course.id === 'rainbow_cyber' ? 0x00ffff : 0xff3300 });
-      for (let side = -1; side <= 1; side += 2) {
-        for (let r = 3.5; r <= 15.5; r += 2.8) {
-          const orb = new THREE.Mesh(orbGeo, orbMat);
-          orb.position.set(side * r, 0, 0);
-          pivot.add(orb);
-        }
-      }
-      this.worldGroup.add(pivot);
-
-      this.gimmicks.push({
-        type: 'FIREBAR',
-        pos: s.point.clone(),
-        mesh: pivot,
-        angle: i * Math.PI * 0.5,
-        speed: 1.75 * (i % 2 === 0 ? 1 : -1),
-        armLength: 16.0
-      });
-    });
-
-    // 5. Anti-Gravity Spin Boost Pillars
+    // 3. Anti-Gravity Spin Boost Pillars (Pure positive speed boost rings - NO TRAPS!)
     [45, 145, 245, 330].forEach((idx) => {
       const s = this.trackSamples[idx];
       const pGroup = new THREE.Group();
@@ -712,30 +649,6 @@ class KartGameEngine {
         mesh: pGroup,
         radius: 5.2
       });
-    });
-
-    // 6. Hyper Warp Portal Gate
-    const warpStartIdx = 195;
-    const warpExitIdx = 225;
-    const sStart = this.trackSamples[warpStartIdx];
-    const sExit = this.trackSamples[warpExitIdx];
-    const warpPos = sStart.point.clone().addScaledVector(sStart.normal, -13);
-
-    const portalGeo = new THREE.TorusGeometry(4.8, 0.75, 12, 28);
-    const portalMat = new THREE.MeshBasicMaterial({ color: 0xd400ff });
-    const portalMesh = new THREE.Mesh(portalGeo, portalMat);
-    portalMesh.position.set(warpPos.x, 4.8, warpPos.z);
-    portalMesh.rotation.y = Math.atan2(sStart.tangent.x, sStart.tangent.z);
-    this.worldGroup.add(portalMesh);
-
-    this.gimmicks.push({
-      type: 'WARP_PORTAL',
-      pos: warpPos,
-      exitSampleIdx: warpExitIdx,
-      exitPos: sExit.point.clone(),
-      exitAngle: Math.atan2(sExit.tangent.x, sExit.tangent.z),
-      mesh: portalMesh,
-      radius: 5.8
     });
   }
 
@@ -2209,13 +2122,24 @@ class KartGameEngine {
     racer.sampleIdx = newSampleIdx;
     const sample = this.trackSamples[newSampleIdx];
 
-    // Smart Direction Guard (逆走機能を完全に排除・コース逆向き時にソフトに前向きへアシスト)
+    // Smart Direction Guard & Angle Limiter (最大横に向くのも完全に防止！コース前方38度以内のみを許可)
     const trackAngle = Math.atan2(sample.tangent.x, sample.tangent.z);
     let headingDiff = racer.heading - trackAngle;
     while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
     while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
-    if (Math.abs(headingDiff) > Math.PI * 0.55 && racer.spinOutTimer <= 0) {
-      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 3.0);
+
+    const maxHeadingDev = 0.66; // Maximum 38 degrees off-track: strictly prevents turning sideways or getting lost!
+    if (racer.spinOutTimer <= 0) {
+      if (headingDiff > maxHeadingDev) {
+        racer.heading = trackAngle + maxHeadingDev;
+      } else if (headingDiff < -maxHeadingDev) {
+        racer.heading = trackAngle - maxHeadingDev;
+      }
+
+      // When steering is neutral, smoothly center heading back towards course tangent
+      if (Math.abs(racer.steerInput) < 0.05) {
+        racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 5.0);
+      }
     }
 
     const N = this.trackSamples.length;
@@ -2246,7 +2170,7 @@ class KartGameEngine {
     }
     racer.totalProgress = racer.lap - 1 + newSampleIdx / N;
 
-    // Physical Wall Collision & Wall Slide (瞬間移動ゼロ！滑らかな法線反発と接線スライド)
+    // Physical Wall Collision & Wall Slide (壁に激突しても止まらずに高速滑走！前進速度＆コース方向維持)
     const offsetVec = racer.pos.clone().sub(sample.point);
     offsetVec.y = 0;
     const lateralDist = offsetVec.dot(sample.normal);
@@ -2256,17 +2180,19 @@ class KartGameEngine {
       const sign = Math.sign(lateralDist);
       const penetration = Math.abs(lateralDist) - maxWallDist;
 
-      // Softly resolve penetration along normal
-      racer.pos.addScaledVector(sample.normal, -sign * penetration);
+      // 1. Softly resolve penetration along normal with safety buffer
+      racer.pos.addScaledVector(sample.normal, -sign * (penetration + 0.45));
 
-      // Keep forward speed along track tangent (Wall Slide!)
-      // The kart glides naturally along the track without stopping
-      const tangentVel = Math.max(26, racer.speed * 0.97);
-      racer.speed = THREE.MathUtils.lerp(racer.speed, tangentVel, dt * 5.0);
+      // 2. Immediately align kart heading along track tangent (parallel to wall) so it never gets stuck into the wall
+      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 12.0);
 
-      // Smoothly guide heading parallel to track tangent
-      const targetWallAngle = Math.atan2(sample.tangent.x, sample.tangent.z);
-      racer.heading = THREE.MathUtils.lerp(racer.heading, targetWallAngle, dt * 3.5);
+      // 3. Cancel steering into the wall
+      if ((sign > 0 && racer.steerInput < 0) || (sign < 0 && racer.steerInput > 0)) {
+        racer.steerInput = 0;
+      }
+
+      // 4. Maintain high gliding speed (Minimum 44 km/h or 98% of current speed)
+      racer.speed = Math.max(racer.speed * 0.98, 44);
 
       this.spawnSparkBurst(racer.pos, 0xffaa00);
       if (racer.isPlayer) window.soundEngine.sfxWallHit();
@@ -2656,54 +2582,6 @@ class KartGameEngine {
             }
           }
         });
-      } else if (g.type === 'THWOMP') {
-        const cycle = (elapsed + g.phase) % 4.2;
-        let y = 17;
-        if (cycle < 2.2) {
-          y = 17 + Math.sin(elapsed * 14) * 0.3;
-          g.isDown = false;
-        } else if (cycle < 2.45) {
-          const p = (cycle - 2.2) / 0.25;
-          y = 17 * (1 - p) + 5.8 * p;
-          if (!g.isDown && p > 0.85) {
-            g.isDown = true;
-            this.spawnSparkBurst(g.pos, 0xffaa00);
-          }
-        } else if (cycle < 3.2) {
-          y = 5.8;
-          g.isDown = true;
-        } else {
-          const p = (cycle - 3.2) / 1.0;
-          y = 5.8 + p * 11.2;
-          g.isDown = false;
-        }
-        g.mesh.position.y = y;
-
-        if (y < 8.8) {
-          this.racers.forEach((r) => {
-            if (r.pos.distanceTo(g.pos) < g.radius) {
-              r.flattenedTimer = 3.2;
-              this.hitRacer(r, 'ドッスン踏み潰し');
-            }
-          });
-        }
-      } else if (g.type === 'FIREBAR') {
-        g.angle += g.speed * dt;
-        g.mesh.rotation.y = g.angle;
-        const barDir = new THREE.Vector3(Math.cos(-g.angle), 0, Math.sin(-g.angle));
-
-        this.racers.forEach((r) => {
-          const rel = r.pos.clone().sub(g.pos);
-          rel.y = 0;
-          const dist = rel.length();
-          if (dist < g.armLength) {
-            const proj = Math.abs(rel.dot(barDir));
-            const perp = Math.sqrt(Math.max(0, dist * dist - proj * proj));
-            if (perp < 2.2) {
-              this.hitRacer(r, '回転ファイア＆レーザー');
-            }
-          }
-        });
       } else if (g.type === 'SPIN_BOOSTER') {
         g.mesh.rotation.y += dt * 4.5;
         this.racers.forEach((r) => {
@@ -2713,21 +2591,6 @@ class KartGameEngine {
             if (r.isPlayer) {
               window.soundEngine.sfxGimmickSwitch();
               this.showTicker('🌀 反重力スピンターボ発動！！');
-            }
-          }
-        });
-      } else if (g.type === 'WARP_PORTAL') {
-        g.mesh.rotation.z += dt * 3.5;
-        this.racers.forEach((r) => {
-          if (r.pos.distanceTo(g.pos) < g.radius) {
-            r.pos.copy(g.exitPos);
-            r.heading = g.exitAngle;
-            r.sampleIdx = g.exitSampleIdx;
-            r.maxSampleReached = Math.max(r.maxSampleReached, g.exitSampleIdx);
-            this.triggerBoost(r, 1.8, 35);
-            if (r.isPlayer) {
-              window.soundEngine.sfxGimmickSwitch();
-              this.showTicker('🌌 ハイパーワープゲート通過！コース前方へ瞬間移動！！');
             }
           }
         });
