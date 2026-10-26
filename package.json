@@ -1,7 +1,7 @@
 {
   "name": "super-kart-deluxe-gx",
-  "version": "2.0.3",
-  "description": "SUPER KART DELUXE GX - マリオカート完全再現＋オリジナル超ギミックエディション Windows App Ver 2.0.3",
+  "version": "2.0.4",
+  "description": "SUPER KART DELUXE GX - マリオカート完全再現＋オリジナル超ギミックエディション Windows App Ver 2.0.4",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -26,10 +26,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "artifactName": "SuperKartDeluxeGX-Setup-Installer-v2.0.3.exe"
+      "artifactName": "SuperKartDeluxeGX-Setup-Installer-v2.0.4.exe"
     },
     "portable": {
-      "artifactName": "SuperKartDeluxeGX-Portable-NoInstall-v2.0.3.exe"
+      "artifactName": "SuperKartDeluxeGX-Portable-NoInstall-v2.0.4.exe"
     }
   },
   "dependencies": {

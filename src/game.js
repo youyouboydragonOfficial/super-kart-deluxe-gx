@@ -598,7 +598,8 @@ class KartGameEngine {
       this.gimmicks.push({
         type: 'BOOST_PAD',
         pos,
-        radius: 6.8,
+        angle,
+        radius: 7.2,
         mesh: padMesh
       });
     });
@@ -618,6 +619,7 @@ class KartGameEngine {
       this.gimmicks.push({
         type: 'JUMP_RAMP',
         pos: s.point.clone(),
+        angle,
         radius: 9.0,
         mesh: rampMesh
       });
@@ -625,29 +627,41 @@ class KartGameEngine {
 
     if (!this.extraGimmicks) return;
 
-    // 3. Anti-Gravity Spin Boost Pillars (Pure positive speed boost rings - NO TRAPS!)
+    // 3. Ultra-Fast Light-Speed Vortex Pillars (光速スピン・ボルテックスピラー！)
+    // 接触した瞬間に外側へドカーンと大吹き飛ばし＆スピン！引っかかりを完全解消！
     [45, 145, 245, 330].forEach((idx) => {
       const s = this.trackSamples[idx];
       const pGroup = new THREE.Group();
       pGroup.position.set(s.point.x, 2.5, s.point.z);
 
-      const cylGeo = new THREE.CylinderGeometry(2.5, 2.5, 5.5, 16);
-      const cylMat = new THREE.MeshPhongMaterial({
-        color: 0x00e5ff,
-        emissive: 0x0066aa
+      const cylGeo = new THREE.CylinderGeometry(1.8, 1.8, 6.5, 16);
+      const cylMat = new THREE.MeshStandardMaterial({
+        color: 0x00f2ff,
+        emissive: 0x0088cc,
+        roughness: 0.2,
+        metalness: 0.8
       });
-      const ringGeo = new THREE.TorusGeometry(4.0, 0.4, 8, 24);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.rotation.x = Math.PI / 2;
-      pGroup.add(new THREE.Mesh(cylGeo, cylMat), ring);
+      const cyl = new THREE.Mesh(cylGeo, cylMat);
+
+      // Multi-layer glowing plasma rings for light-speed vortex appearance
+      const ringGeo1 = new THREE.TorusGeometry(3.6, 0.35, 8, 24);
+      const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+      const ring1 = new THREE.Mesh(ringGeo1, ringMat1);
+      ring1.rotation.x = Math.PI / 2;
+
+      const ringGeo2 = new THREE.TorusGeometry(4.8, 0.25, 8, 24);
+      const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xff00d4 });
+      const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
+      ring2.rotation.y = Math.PI / 3;
+
+      pGroup.add(cyl, ring1, ring2);
       this.worldGroup.add(pGroup);
 
       this.gimmicks.push({
         type: 'SPIN_BOOSTER',
         pos: s.point.clone(),
         mesh: pGroup,
-        radius: 5.2
+        radius: 5.5
       });
     });
   }
@@ -916,23 +930,28 @@ class KartGameEngine {
       chassisGroup.add(stripe);
     });
 
-    // 2. Cockpit Interior (Racing Bucket Seat, Steering Column, Wheel, Dashboard)
-    // Bucket Seat
+    // 2. Cockpit Interior (Low-Profile Racing Bucket Seat - Leaves Driver 100% Visible to Camera!)
+    // Compact racing bucket seat back (no oversized headrest blocking the driver from behind)
     const seatBack = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 1.4, 0.35),
-      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })
+      new THREE.BoxGeometry(1.5, 0.9, 0.28),
+      new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.85 })
     );
-    seatBack.position.set(0, 1.35, -0.75);
+    seatBack.position.set(0, 0.95, -0.72);
     seatBack.rotation.x = -0.15;
+    seatBack.castShadow = true;
     chassisGroup.add(seatBack);
 
-    // Headrest
-    const headrest = new THREE.Mesh(
-      new THREE.BoxGeometry(0.9, 0.65, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 })
-    );
-    headrest.position.set(0, 2.1, -0.9);
-    chassisGroup.add(headrest);
+    // Tubular Steel Racing Chassis Frame Rails (Authentic Go-Kart Pipe Cage)
+    [-1.25, 1.25].forEach((rx) => {
+      const rail = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 3.8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.2 })
+      );
+      rail.rotation.x = Math.PI / 2;
+      rail.position.set(rx, 0.42, 0.1);
+      rail.castShadow = true;
+      chassisGroup.add(rail);
+    });
 
     // Steering Shaft and Wheel
     const steerShaft = new THREE.Mesh(
@@ -973,51 +992,63 @@ class KartGameEngine {
       steeringWheelGroup.add(spoke);
     }
 
-    // 3. Engine Bay & Dual Exhaust Pipes
+    // 3. Realistic Racing Engine Bay & Dual Exhaust Pipes
     const engineBlock = new THREE.Mesh(
       new THREE.BoxGeometry(1.6, 0.85, 1.2),
-      new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.9, roughness: 0.25 })
+      new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.92, roughness: 0.2 })
     );
-    engineBlock.position.set(0, 0.95, -1.65);
+    engineBlock.position.set(0, 0.85, -1.65);
+    engineBlock.castShadow = true;
     chassisGroup.add(engineBlock);
+
+    // Gold Spark Plug Caps & Air Filter
+    [-0.4, 0.4].forEach((px) => {
+      const plug = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 0.3, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffaa00, metalness: 0.9 })
+      );
+      plug.position.set(px, 1.35, -1.65);
+      chassisGroup.add(plug);
+    });
 
     // Dual Exhaust Pipes
     const exhaustPipes = [];
     [-0.65, 0.65].forEach((px) => {
       const pipe = new THREE.Mesh(
         new THREE.CylinderGeometry(0.24, 0.32, 1.6, 12),
-        new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.95, roughness: 0.15 })
+        new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.95, roughness: 0.15 })
       );
       pipe.rotation.x = Math.PI / 2.8;
-      pipe.position.set(px, 0.9, -2.4);
+      pipe.position.set(px, 0.85, -2.4);
+      pipe.castShadow = true;
       chassisGroup.add(pipe);
       exhaustPipes.push(pipe);
     });
 
-    // Large Rear Downforce Wing
+    // Rear Low-Profile Downforce Wing (Positioned low so driver is 100% visible)
     [-0.95, 0.95].forEach((sx) => {
       const wingStay = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 1.1, 0.35),
+        new THREE.BoxGeometry(0.12, 0.85, 0.35),
         new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 })
       );
-      wingStay.position.set(sx, 1.5, -2.05);
+      wingStay.position.set(sx, 1.15, -2.05);
       wingStay.rotation.x = 0.2;
       chassisGroup.add(wingStay);
     });
 
     const rearWing = new THREE.Mesh(
-      new THREE.BoxGeometry(3.6, 0.22, 1.1),
-      new THREE.MeshStandardMaterial({ color: driverData.hatColor, roughness: 0.3, metalness: 0.4 })
+      new THREE.BoxGeometry(3.6, 0.2, 0.95),
+      new THREE.MeshStandardMaterial({ color: driverData.hatColor, roughness: 0.3, metalness: 0.5 })
     );
-    rearWing.position.set(0, 2.05, -2.2);
+    rearWing.position.set(0, 1.55, -2.15);
     rearWing.rotation.x = -0.15;
+    rearWing.castShadow = true;
     chassisGroup.add(rearWing);
 
     // 4. Wheels & Suspension (Front Steering Pivots + Rotating Wheels + Anti-Gravity Tilt)
     const wheelAssemblies = [];
     const frontSteerPivots = [];
 
-    // [x, y, z, isFront, isLeft]
     const wheelPositions = [
       [-1.65, 0.68, 1.45, true, true],
       [1.65, 0.68, 1.45, true, false],
@@ -1026,7 +1057,6 @@ class KartGameEngine {
     ];
 
     wheelPositions.forEach(([wx, wy, wz, isFront, isLeft]) => {
-      // Base Pivot on root
       const pivot = new THREE.Group();
       pivot.position.set(wx, wy, wz);
       root.add(pivot);
@@ -1035,11 +1065,9 @@ class KartGameEngine {
         frontSteerPivots.push(pivot);
       }
 
-      // Hover / Anti-Gravity Tilt Group (Tilts 90 deg when anti-grav activated!)
       const tiltGroup = new THREE.Group();
       pivot.add(tiltGroup);
 
-      // Spin Group (Rotates along wheel axis with speed)
       const spinGroup = new THREE.Group();
       tiltGroup.add(spinGroup);
 
@@ -1076,7 +1104,7 @@ class KartGameEngine {
       disc.position.x = isLeft ? 0.15 : -0.15;
       spinGroup.add(disc);
 
-      // Sport Red Brake Caliper (Stationary relative to spin, sits on tiltGroup)
+      // Sport Red Brake Caliper
       const caliper = new THREE.Mesh(
         new THREE.BoxGeometry(0.18, 0.35, 0.25),
         new THREE.MeshStandardMaterial({ color: 0xee1111, roughness: 0.3 })
@@ -1101,107 +1129,194 @@ class KartGameEngine {
       });
     });
 
-    // 5. Highly Detailed Driver Character Model
+    // =========================================================================
+    // 5. ICONIC 3D DRIVER CHARACTER (High Visibility, Full Expressive Modelling!)
+    // Prominently perched in cockpit: Mario, Luigi, Peach, Bowser, Yoshi, Toad, Wario, Rosalina
+    // =========================================================================
     const driverGroup = new THREE.Group();
-    driverGroup.position.set(0, 1.25, -0.2);
+    // Scaled up and positioned high so the driver is 100% visible and recognizable from chase camera!
+    driverGroup.position.set(0, 1.25, -0.25);
+    driverGroup.scale.set(1.35, 1.35, 1.35);
     chassisGroup.add(driverGroup);
 
-    // Torso / Overalls
+    // Torso / Overalls / Clothing
     const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.7, 0.82, 1.25, 12),
+      new THREE.CylinderGeometry(0.72, 0.85, 1.25, 12),
       new THREE.MeshStandardMaterial({ color: driverData.shirtColor, roughness: 0.6 })
     );
-    torso.position.set(0, 0.35, 0);
+    torso.position.set(0, 0.38, 0);
     torso.castShadow = true;
     driverGroup.add(torso);
 
-    // Overalls Bib (Blue with Yellow Buttons for Mario/Luigi)
-    const bib = new THREE.Mesh(
-      new THREE.BoxGeometry(0.9, 0.85, 0.65),
-      new THREE.MeshStandardMaterial({ color: 0x0044cc, roughness: 0.7 })
-    );
-    bib.position.set(0, 0.28, 0.15);
-    bib.castShadow = true;
-    driverGroup.add(bib);
+    const isMarioOrLuigiOrWario = ['mario', 'luigi', 'wario'].includes(driverData.id);
 
-    [-0.26, 0.26].forEach((bx) => {
-      const button = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.08, 0.05, 8),
-        new THREE.MeshBasicMaterial({ color: 0xffdd00 })
+    if (isMarioOrLuigiOrWario) {
+      // Overalls Bib (Blue overalls with shiny yellow buttons!)
+      const bibColor = driverData.id === 'wario' ? 0x8800bb : 0x0044cc;
+      const bib = new THREE.Mesh(
+        new THREE.BoxGeometry(0.92, 0.88, 0.7),
+        new THREE.MeshStandardMaterial({ color: bibColor, roughness: 0.7 })
       );
-      button.rotation.x = Math.PI / 2;
-      button.position.set(bx, 0.55, 0.48);
-      driverGroup.add(button);
-    });
+      bib.position.set(0, 0.32, 0.16);
+      bib.castShadow = true;
+      driverGroup.add(bib);
 
-    // Head
+      [-0.28, 0.28].forEach((bx) => {
+        const button = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.09, 0.09, 0.05, 8),
+          new THREE.MeshBasicMaterial({ color: 0xffdd00 })
+        );
+        button.rotation.x = Math.PI / 2;
+        button.position.set(bx, 0.58, 0.52);
+        driverGroup.add(button);
+      });
+    }
+
+    // Head Base (Skin Tone)
+    const skinColor = driverData.id === 'bowser' ? 0x44aa22 : driverData.id === 'yoshi' ? 0x55dd22 : 0xffccaa;
     const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.75, 16, 16),
-      new THREE.MeshStandardMaterial({ color: 0xffccaa, roughness: 0.5 })
+      new THREE.SphereGeometry(0.78, 16, 16),
+      new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.5 })
     );
-    head.position.set(0, 1.25, 0);
+    head.position.set(0, 1.35, 0);
     head.castShadow = true;
     driverGroup.add(head);
 
-    // Nose
-    const noseM = new THREE.Mesh(
-      new THREE.SphereGeometry(0.32, 12, 12),
-      new THREE.MeshStandardMaterial({ color: 0xffbba0, roughness: 0.5 })
-    );
-    noseM.position.set(0, 1.22, 0.72);
-    driverGroup.add(noseM);
+    // Character Specific Head Features
+    if (driverData.id === 'toad') {
+      // Toad's Giant Iconic Mushroom Cap (White dome with Red Spots)
+      const toadCap = new THREE.Mesh(
+        new THREE.SphereGeometry(1.25, 16, 12),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 })
+      );
+      toadCap.position.set(0, 1.85, 0);
+      toadCap.scale.set(1.2, 0.9, 1.2);
+      toadCap.castShadow = true;
+      driverGroup.add(toadCap);
 
-    // Moustache (Curved 3D block for Mario/Luigi/Wario)
-    const stache = new THREE.Mesh(
-      new THREE.BoxGeometry(0.85, 0.25, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0x221100, roughness: 0.8 })
-    );
-    stache.position.set(0, 1.05, 0.68);
-    driverGroup.add(stache);
+      // Red Spots on Toad Cap
+      [[-0.8, 1.95, 0.6], [0.8, 1.95, 0.6], [0, 2.35, 0], [0, 1.85, -0.9], [-0.9, 1.85, -0.4], [0.9, 1.85, -0.4]].forEach(([sx, sy, sz]) => {
+        const spot = new THREE.Mesh(
+          new THREE.SphereGeometry(0.42, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xe60012 })
+        );
+        spot.position.set(sx, sy, sz);
+        driverGroup.add(spot);
+      });
+    } else if (driverData.id === 'peach' || driverData.id === 'rosalina') {
+      // Princess Hair & Gold Crown
+      const isPeach = driverData.id === 'peach';
+      const hairMat = new THREE.MeshStandardMaterial({ color: isPeach ? 0xffdd22 : 0xf0f0cc, roughness: 0.5 });
+      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.88, 12, 12), hairMat);
+      hair.position.set(0, 1.35, -0.15);
+      driverGroup.add(hair);
 
-    // Cap / Helmet
-    const capDome = new THREE.Mesh(
-      new THREE.SphereGeometry(0.82, 16, 12),
-      new THREE.MeshStandardMaterial({ color: driverData.hatColor, roughness: 0.4 })
-    );
-    capDome.position.set(0, 1.45, -0.05);
-    capDome.castShadow = true;
-    driverGroup.add(capDome);
+      // Crown
+      const crown = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.28, 0.4, 8),
+        new THREE.MeshStandardMaterial({ color: isPeach ? 0xffbb00 : 0xcccccc, metalness: 0.9, roughness: 0.1 })
+      );
+      crown.position.set(0, 2.15, 0);
+      driverGroup.add(crown);
+    } else if (driverData.id === 'bowser') {
+      // Bowser's Horns & Spikes
+      [-0.55, 0.55].forEach((hx) => {
+        const horn = new THREE.Mesh(
+          new THREE.ConeGeometry(0.25, 0.85, 8),
+          new THREE.MeshStandardMaterial({ color: 0xffeeaa, roughness: 0.3 })
+        );
+        horn.position.set(hx, 1.95, -0.1);
+        horn.rotation.z = hx > 0 ? -0.4 : 0.4;
+        driverGroup.add(horn);
+      });
+      // Spiked Green Shell on Back
+      const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(0.95, 12, 12),
+        new THREE.MeshStandardMaterial({ color: 0x228811, roughness: 0.6 })
+      );
+      shell.scale.set(1.0, 1.1, 0.6);
+      shell.position.set(0, 0.65, -0.65);
+      shell.castShadow = true;
+      driverGroup.add(shell);
+    } else if (driverData.id === 'yoshi') {
+      // Yoshi's Cute Big Rounded Nose & Red Crest
+      const yoshiNose = new THREE.Mesh(
+        new THREE.SphereGeometry(0.65, 14, 14),
+        new THREE.MeshStandardMaterial({ color: 0x55dd22, roughness: 0.5 })
+      );
+      yoshiNose.position.set(0, 1.35, 0.75);
+      driverGroup.add(yoshiNose);
 
-    // Cap Visor
-    const visor = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.78, 0.88, 0.14, 12, 1, false, 0, Math.PI),
-      new THREE.MeshLambertMaterial({ color: driverData.hatColor })
-    );
-    visor.rotation.x = -Math.PI / 6;
-    visor.position.set(0, 1.35, 0.55);
-    driverGroup.add(visor);
+      const crest = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.65, 0.65),
+        new THREE.MeshStandardMaterial({ color: 0xee2200 })
+      );
+      crest.position.set(0, 1.65, -0.6);
+      driverGroup.add(crest);
+    } else {
+      // Classic Mario / Luigi / Wario: Newsboy Cap with Visor & Emblem
+      const capDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.88, 16, 12),
+        new THREE.MeshStandardMaterial({ color: driverData.hatColor, roughness: 0.4 })
+      );
+      capDome.position.set(0, 1.55, -0.05);
+      capDome.scale.set(1.05, 0.9, 1.05);
+      capDome.castShadow = true;
+      driverGroup.add(capDome);
 
-    // Cap Emblem
-    const capEmblem = new THREE.Mesh(
-      new THREE.CircleGeometry(0.24, 16),
-      new THREE.MeshBasicMaterial({ map: emblemTex, transparent: true })
-    );
-    capEmblem.position.set(0, 1.62, 0.74);
-    driverGroup.add(capEmblem);
+      // Cap Visor (Brim)
+      const visor = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.82, 0.95, 0.15, 12, 1, false, 0, Math.PI),
+        new THREE.MeshLambertMaterial({ color: driverData.hatColor })
+      );
+      visor.rotation.x = -Math.PI / 6;
+      visor.position.set(0, 1.45, 0.62);
+      driverGroup.add(visor);
 
-    // Arms extending forward to grip the Steering Wheel!
-    [-0.6, 0.6].forEach((ax) => {
+      // White Badge with Initial Logo on front of cap!
+      const capEmblem = new THREE.Mesh(
+        new THREE.CircleGeometry(0.28, 16),
+        new THREE.MeshBasicMaterial({ map: emblemTex, transparent: true })
+      );
+      capEmblem.position.set(0, 1.76, 0.82);
+      driverGroup.add(capEmblem);
+
+      // Iconic Round Nose
+      const noseM = new THREE.Mesh(
+        new THREE.SphereGeometry(0.38, 12, 12),
+        new THREE.MeshStandardMaterial({ color: 0xffbba0, roughness: 0.5 })
+      );
+      noseM.position.set(0, 1.32, 0.8);
+      driverGroup.add(noseM);
+
+      // Mustache
+      const stache = new THREE.Mesh(
+        new THREE.BoxGeometry(0.95, 0.3, 0.35),
+        new THREE.MeshStandardMaterial({ color: driverData.id === 'wario' ? 0x221100 : 0x111111, roughness: 0.8 })
+      );
+      stache.position.set(0, 1.12, 0.74);
+      driverGroup.add(stache);
+    }
+
+    // Arms & Hands Gripping Steering Wheel
+    [-0.68, 0.68].forEach((ax) => {
       const arm = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.18, 0.22, 0.9, 8),
-        new THREE.MeshLambertMaterial({ color: driverData.shirtColor })
+        new THREE.CylinderGeometry(0.2, 0.24, 0.95, 8),
+        new THREE.MeshStandardMaterial({ color: driverData.shirtColor, roughness: 0.6 })
       );
       arm.rotation.x = Math.PI / 3;
-      arm.rotation.z = ax > 0 ? -0.25 : 0.25;
-      arm.position.set(ax, 0.65, 0.35);
+      arm.rotation.z = ax > 0 ? -0.28 : 0.28;
+      arm.position.set(ax, 0.68, 0.38);
+      arm.castShadow = true;
       driverGroup.add(arm);
 
-      // White Driving Gloves
+      // High-Visibility White Driving Gloves!
       const glove = new THREE.Mesh(
-        new THREE.SphereGeometry(0.22, 10, 10),
-        new THREE.MeshLambertMaterial({ color: 0xffffff })
+        new THREE.SphereGeometry(0.28, 12, 12),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 })
       );
-      glove.position.set(ax > 0 ? 0.35 : -0.35, 0.25, 0.72);
+      glove.position.set(ax > 0 ? 0.38 : -0.38, 0.28, 0.78);
+      glove.castShadow = true;
       driverGroup.add(glove);
     });
 
@@ -2065,12 +2180,33 @@ class KartGameEngine {
     const speedTurnFactor = THREE.MathUtils.lerp(1.22, 0.92, speedRatio);
     const turnRate = racer.handlingStat * speedTurnFactor * (racer.drifting ? 1.4 : 1.0);
 
+    // Obtain immediate track orientation BEFORE moving to strictly prohibit ANY momentary reverse or stray heading
+    const sampleBeforeMove = this.trackSamples[racer.sampleIdx];
+    const trackAngleBefore = Math.atan2(sampleBeforeMove.tangent.x, sampleBeforeMove.tangent.z);
+
     if (racer.speed > 0.5 && racer.spinOutTimer <= 0) {
       const effectiveSteer = racer.drifting ? racer.steerInput * 0.72 + racer.driftDir * 0.55 : racer.steerInput;
       racer.heading += effectiveSteer * turnRate * dt;
+
+      // STRICT PRE-MOVE FORWARD-ONLY CLAMP: Absolutely zero momentary reverse or turning sideways!
+      let headingDiff = racer.heading - trackAngleBefore;
+      while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
+      while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
+
+      const maxHeadingDev = racer.drifting ? 0.52 : 0.44; // Strict forward arc (approx 25-29 degrees)
+      if (headingDiff > maxHeadingDev) {
+        racer.heading = trackAngleBefore + maxHeadingDev;
+      } else if (headingDiff < -maxHeadingDev) {
+        racer.heading = trackAngleBefore - maxHeadingDev;
+      }
+
+      // Smooth auto-centering to track curvature when steering is neutral
+      if (Math.abs(racer.steerInput) < 0.05) {
+        racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngleBefore, dt * 6.5);
+      }
     }
 
-    // Move forward
+    // Move forward - Guaranteed forward along track direction at all times!
     racer.pos.x += Math.sin(racer.heading) * racer.speed * dt;
     racer.pos.z += Math.cos(racer.heading) * racer.speed * dt;
 
@@ -2122,23 +2258,18 @@ class KartGameEngine {
     racer.sampleIdx = newSampleIdx;
     const sample = this.trackSamples[newSampleIdx];
 
-    // Smart Direction Guard & Angle Limiter (最大横に向くのも完全に防止！コース前方38度以内のみを許可)
+    // Strict Direction Guard: Ensure post-update heading stays within safe forward arc
     const trackAngle = Math.atan2(sample.tangent.x, sample.tangent.z);
     let headingDiff = racer.heading - trackAngle;
     while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
     while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
 
-    const maxHeadingDev = 0.66; // Maximum 38 degrees off-track: strictly prevents turning sideways or getting lost!
+    const maxHeadingDev = racer.drifting ? 0.52 : 0.44;
     if (racer.spinOutTimer <= 0) {
       if (headingDiff > maxHeadingDev) {
         racer.heading = trackAngle + maxHeadingDev;
       } else if (headingDiff < -maxHeadingDev) {
         racer.heading = trackAngle - maxHeadingDev;
-      }
-
-      // When steering is neutral, smoothly center heading back towards course tangent
-      if (Math.abs(racer.steerInput) < 0.05) {
-        racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 5.0);
       }
     }
 
@@ -2569,7 +2700,13 @@ class KartGameEngine {
         this.racers.forEach((r) => {
           if (r.pos.distanceTo(g.pos) < g.radius) {
             if (r.boostTimer < 0.3 && r.isPlayer) window.soundEngine.sfxBoost();
-            this.triggerBoost(r, 1.1, 28);
+            this.triggerBoost(r, 1.25, 32);
+
+            // Smoothly align kart heading to ideal course track tangent (prevents veering into walls!)
+            if (g.angle !== undefined) {
+              r.heading = THREE.MathUtils.lerp(r.heading, g.angle, 0.78);
+            }
+            r.steerInput = 0; // Center steering to launch straight forward along the racing line
           }
         });
       } else if (g.type === 'JUMP_RAMP') {
@@ -2577,20 +2714,41 @@ class KartGameEngine {
           if (r.pos.distanceTo(g.pos) < g.radius && r.pos.y < 1.5) {
             r.velY = 26;
             this.triggerBoost(r, 1.4, 26);
+            if (g.angle !== undefined) {
+              r.heading = THREE.MathUtils.lerp(r.heading, g.angle, 0.75);
+            }
+            r.steerInput = 0;
             if (r.isPlayer) {
               window.soundEngine.sfxBoost();
             }
           }
         });
       } else if (g.type === 'SPIN_BOOSTER') {
-        g.mesh.rotation.y += dt * 4.5;
+        // Ultra Light-Speed Spin Rotation! (光速回転ボルテックス)
+        g.mesh.rotation.y += dt * 38.0;
+
         this.racers.forEach((r) => {
-          if (r.pos.distanceTo(g.pos) < g.radius) {
-            r.antiGravityTimer = 5.0;
-            this.triggerBoost(r, 1.3, 30);
+          const toRacer = r.pos.clone().sub(g.pos);
+          toRacer.y = 0;
+          const dist = toRacer.length();
+
+          if (dist < g.radius) {
+            // Instant violent ejection away from pillar (ZERO STICKING!)
+            const knockDir = dist > 0.1 ? toRacer.normalize() : new THREE.Vector3(1, 0, 0);
+            r.pos.addScaledVector(knockDir, (g.radius - dist) + 5.5);
+            r.pos.y = 1.2;
+            r.velY = 18.0; // High aerial bounce!
+
+            // Trigger crash & spin-out (blows kart outward towards track walls and trees!)
+            this.hitRacer(r, '光速スピンボルテックス激突');
+            r.speed = 68; // High speed outward momentum into walls
+            r.heading = Math.atan2(knockDir.x, knockDir.z); // Hurtles outward!
+
+            this.spawnSparkBurst(g.pos, 0x00ffff);
             if (r.isPlayer) {
-              window.soundEngine.sfxGimmickSwitch();
-              this.showTicker('🌀 反重力スピンターボ発動！！');
+              window.soundEngine.sfxExplosion();
+              window.soundEngine.sfxLightning();
+              this.showTicker('⚡ 光速ボルテックス激突！外側へ大吹き飛びクラッシュ！！');
             }
           }
         });
