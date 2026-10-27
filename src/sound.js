@@ -68,7 +68,7 @@ class SoundEngine {
 
     // Sub square oscillator for heavy exhaust rumble
     this.engineSubOsc = this.ctx.createOscillator();
-    this.engineSubOsc.type = 'square';
+    this.engineSubOsc.type = 'triangle';
     this.engineSubOsc.frequency.setValueAtTime(32.5, now);
 
     const subGain = this.ctx.createGain();
@@ -371,7 +371,7 @@ class SoundEngine {
   }
 
   // ==================== INTERACTIVE MULTI-TRACK BGM ENGINE ====================
-  // Generates real driving Mario Kart-style brass melody, slap bass, rhythmic drums & chords!
+  // Generates real driving Mario Kart-style brass melody, warm groove bass, rhythmic drums & rich chords!
   startBGM(mode = 'menu') {
     this.init();
     if (this.bgmMode === mode && this.bgmTimer) return;
@@ -379,95 +379,135 @@ class SoundEngine {
     this.bgmMode = mode;
     this.step = 0;
 
-    // Fast, energetic tempos: Menu=124 BPM, Race=138 BPM, Final Lap=165 BPM!
-    this.currentTempo = mode === 'final_lap' ? 165 : mode === 'race' ? 138 : 124;
+    // Fast, energetic tempos: Menu=124 BPM, Race=140 BPM, Final Lap=166 BPM
+    this.currentTempo = mode === 'final_lap' ? 166 : mode === 'race' ? 140 : 124;
     const sixteenthIntervalMs = (60000 / this.currentTempo) / 4; // 16th note timing
 
-    // Bass notes (Hz)
-    const C2 = 65.41, D2 = 73.42, Eb2 = 77.78, E2 = 82.41, F2 = 87.31, G2 = 98.00, A2 = 110.00, Bb2 = 116.54, B2 = 123.47;
-    const C3 = 130.81, D3 = 146.83, Eb3 = 155.56, E3 = 164.81, F3 = 174.61, G3 = 196.00, A3 = 220.00, Bb3 = 233.08;
+    // Pitch constants (Hz)
+    const C2 = 65.41, D2 = 73.42, Eb2 = 77.78, E2 = 82.41, F2 = 87.31, G2 = 98.00, Ab2 = 103.83, A2 = 110.00, Bb2 = 116.54, B2 = 123.47;
+    const C3 = 130.81, D3 = 146.83, Eb3 = 155.56, E3 = 164.81, F3 = 174.61, G3 = 196.00, Ab3 = 207.65, A3 = 220.00, Bb3 = 233.08, B3 = 246.94;
+    const C4 = 261.63, D4 = 293.66, Eb4 = 311.13, E4 = 329.63, F4 = 349.23, Gb4 = 369.99, G4 = 392.00, Ab4 = 415.30, A4 = 440.00, Bb4 = 466.16, B4 = 493.88;
+    const C5 = 523.25, D5 = 587.33, Eb5 = 622.25, E5 = 659.25, F5 = 698.46, G5 = 783.99, Ab5 = 830.61, A5 = 880.00, Bb5 = 932.33, B5 = 987.77;
+    const C6 = 1046.50, D6 = 1174.66, Eb6 = 1244.51, E6 = 1318.51, F6 = 1396.91, G6 = 1567.98;
 
-    // Melody notes (Hz)
-    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, Bb4 = 466.16, B4 = 493.88;
-    const C5 = 523.25, D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99, A5 = 880.00, Bb5 = 932.33, B5 = 987.77, C6 = 1046.50;
-
-    // 32-step loop patterns (2 bars of 4/4 time in 16th notes)
-    // 1. Kick Drum (steps 0, 4, 8, 12, 16, 20, 24, 28 + syncopations)
+    // 64-step loop patterns (4 bars of 4/4 time in 16th notes)
+    // 1. Kick Drum
     const kickPattern = [
       1, 0, 0, 0, 0, 0, 1, 0,  1, 0, 0, 0, 0, 1, 0, 0,
-      1, 0, 0, 0, 0, 0, 1, 0,  1, 0, 1, 0, 0, 1, 0, 0
+      1, 0, 0, 0, 0, 0, 1, 0,  1, 0, 1, 0, 0, 1, 0, 0,
+      1, 0, 0, 0, 0, 0, 1, 0,  1, 0, 0, 0, 0, 1, 0, 0,
+      1, 0, 0, 0, 0, 0, 1, 0,  1, 0, 1, 0, 1, 1, 0, 0
     ];
 
-    // 2. Snare Drum / Clap (steps 4, 12, 20, 28)
+    // 2. Snare Drum
     const snarePattern = [
       0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 0, 0, 1, 0, 0, 0,
-      0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 0, 0, 1, 0, 1, 0
+      0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 0, 0, 1, 0, 1, 0,
+      0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 0, 0, 1, 0, 0, 0,
+      0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 1, 0, 1, 0, 1, 0
     ];
 
-    // 3. Hi-Hat (Every other 16th note with accents)
+    // 3. Hi-Hat
     const hatPattern = [
       1, 0, 1, 0, 1, 0, 1, 1,  1, 0, 1, 0, 1, 0, 1, 1,
-      1, 0, 1, 0, 1, 0, 1, 1,  1, 0, 1, 1, 1, 1, 1, 1
+      1, 0, 1, 0, 1, 0, 1, 1,  1, 0, 1, 1, 1, 1, 1, 1,
+      1, 0, 1, 0, 1, 0, 1, 1,  1, 0, 1, 0, 1, 0, 1, 1,
+      1, 0, 1, 0, 1, 0, 1, 1,  1, 1, 1, 1, 1, 1, 1, 1
     ];
 
-    // 4. Slap Bass Line (Funky Mario Kart style!)
+    // 4. Bass Line (Warm, melodic, absolutely NO annoying metallic clangs!)
+    const menuBass = [
+      F2, 0, 0, F2, 0, 0, C3, 0,   F2, 0, 0, F2, 0, A2, 0, 0,
+      E2, 0, 0, E2, 0, 0, B2, 0,   E2, 0, 0, E2, 0, G2, 0, 0,
+      D2, 0, 0, D2, 0, 0, A2, 0,   D2, 0, 0, D2, 0, F2, 0, 0,
+      G2, 0, 0, G2, 0, 0, D3, 0,   C2, 0, 0, C2, 0, E2, G2, Bb2
+    ];
+
     const raceBass = [
       C2, 0, C3, 0, 0, Bb2, 0, C3,  0, 0, F2, 0, G2, 0, Bb2, B2,
-      C2, 0, C3, 0, 0, Bb2, 0, C3,  0, 0, G2, 0, F2, 0, Eb2, D2
-    ];
-    const menuBass = [
-      F2, 0, F3, 0, 0, F2, 0, A2,   Bb2, 0, Bb3, 0, 0, C3, 0, 0,
-      D2, 0, D3, 0, 0, D2, 0, F2,   G2, 0, C3, 0, 0, C2, 0, 0
+      C2, 0, C3, 0, 0, Bb2, 0, C3,  0, 0, G2, 0, F2, 0, Eb2, D2,
+      F2, 0, F3, 0, 0, Eb3, 0, F3,  0, 0, C3, 0, D3, 0, Eb3, E3,
+      G2, 0, G3, 0, 0, F3, 0, G3,   Ab2, 0, Ab2, 0, G2, 0, G2, 0
     ];
 
-    // 5. Catchy Brass Melody
-    const raceMelody = [
-      C5, 0, E5, 0, G5, 0, A5, 0,  Bb5, 0, A5, 0, G5, 0, E5, 0,
-      F5, 0, A5, 0, C6, 0, A5, 0,  G5, 0, F5, 0, D5, 0, G5, 0
+    // 5. Rich Chords (Electric Piano & Brass voicings)
+    const Fmaj7 = [F3, A3, C4, E4];
+    const Em7   = [E3, G3, B3, D4];
+    const Dm7   = [D3, F3, A3, C4];
+    const G7    = [G3, B3, D4, F4];
+    const Cmaj7 = [C3, E3, G3, B3];
+
+    const C7    = [C3, E3, G3, Bb3];
+    const F7    = [F3, A3, C4, Eb4];
+    const Ab7   = [Ab3, C4, Eb4, Gb4];
+
+    const menuChords = [
+      Fmaj7, 0, 0, 0, Fmaj7, 0, 0, 0, Fmaj7, 0, 0, 0, Fmaj7, 0, 0, 0,
+      Em7,   0, 0, 0, Em7,   0, 0, 0, Em7,   0, 0, 0, Em7,   0, 0, 0,
+      Dm7,   0, 0, 0, Dm7,   0, 0, 0, Dm7,   0, 0, 0, Dm7,   0, 0, 0,
+      G7,    0, 0, 0, G7,    0, 0, 0, Cmaj7, 0, 0, 0, Cmaj7, 0, 0, 0
     ];
+
+    const raceChords = [
+      C7,  0, 0, 0, C7,  0, 0, 0, C7,  0, 0, 0, C7,  0, 0, 0,
+      C7,  0, 0, 0, C7,  0, 0, 0, C7,  0, 0, 0, C7,  0, 0, 0,
+      F7,  0, 0, 0, F7,  0, 0, 0, F7,  0, 0, 0, F7,  0, 0, 0,
+      G7,  0, 0, 0, G7,  0, 0, 0, Ab7, 0, 0, 0, G7,  0, 0, 0
+    ];
+
+    // 6. Catchy, Joyful Mario Kart Lead Melody
     const menuMelody = [
-      A4, 0, C5, 0, F5, 0, E5, 0,  D5, 0, F5, 0, Bb5, 0, A5, 0,
-      F5, 0, D5, 0, F5, 0, A5, 0,  G5, 0, E5, 0, C5, 0, 0, 0
+      C5, 0, E5, 0, G5, 0, A5, 0,   C6, 0, A5, 0, G5, 0, E5, 0,
+      G5, 0, E5, 0, D5, 0, C5, 0,   D5, 0, E5, 0, G5, 0, 0, 0,
+      F5, 0, A5, 0, C6, 0, D6, 0,   C6, 0, A5, 0, F5, 0, D5, 0,
+      E5, 0, G5, 0, B5, 0, C6, 0,   D6, 0, C6, 0, 0, 0, 0, 0
+    ];
+
+    const raceMelody = [
+      C5, 0, E5, 0, G5, 0, A5, 0,   Bb5, 0, A5, 0, G5, 0, E5, 0,
+      F5, 0, A5, 0, C6, 0, A5, 0,   G5, 0, F5, 0, D5, 0, G5, 0,
+      A5, 0, C6, 0, Eb6, 0, C6, 0,  Bb5, 0, A5, 0, F5, 0, A5, 0,
+      G5, 0, F5, 0, D5, 0, F5, 0,   G5, 0, Ab5, 0, G5, 0, 0, 0
     ];
 
     const currentBass = mode === 'menu' ? menuBass : raceBass;
+    const currentChords = mode === 'menu' ? menuChords : raceChords;
     const currentMelody = mode === 'menu' ? menuMelody : raceMelody;
 
     this.bgmTimer = setInterval(() => {
       if (this.muted || !this.ctx) return;
       const t = this.ctx.currentTime;
-      const stepIdx = this.step % 32;
+      const stepIdx = this.step % 64;
 
-      // A. DRUMS (Only in race and final lap, subtle in menu)
+      // A. DRUMS (Light, clean, joyful groove)
       if (mode !== 'menu') {
-        // Kick
-        if (kickPattern[stepIdx]) {
-          this.playKick(t);
-        }
-        // Snare
-        if (snarePattern[stepIdx]) {
-          this.playSnare(t);
-        }
-        // Hi-Hat
-        if (hatPattern[stepIdx]) {
-          this.playHiHat(t, stepIdx % 4 === 2 ? 0.06 : 0.035);
-        }
+        if (kickPattern[stepIdx]) this.playKick(t, 0.22);
+        if (snarePattern[stepIdx]) this.playSnare(t, 0.15);
+        if (hatPattern[stepIdx]) this.playHiHat(t, stepIdx % 4 === 2 ? 0.055 : 0.035);
       } else {
-        if (stepIdx % 8 === 0) this.playKick(t, 0.12);
-        if (stepIdx % 8 === 4) this.playHiHat(t, 0.04);
+        // Menu drums: gentle jazz brush swing
+        if (stepIdx % 8 === 0) this.playKick(t, 0.14);
+        if (stepIdx % 8 === 4) this.playSnare(t, 0.08);
+        if (stepIdx % 2 === 0) this.playHiHat(t, 0.03);
       }
 
-      // B. FUNKY SLAP BASS
+      // B. RICH CHORDS (Electric piano / Brass harmony)
+      const chord = currentChords[stepIdx];
+      if (chord) {
+        this.playChord(chord, t, (sixteenthIntervalMs * 3.2) / 1000, mode === 'menu' ? 0.045 : 0.035);
+      }
+
+      // C. WARM GROOVE BASS (Smooth, round, zero harsh resonance)
       const bassNote = currentBass[stepIdx];
       if (bassNote) {
-        this.playSlapBass(bassNote, t, (sixteenthIntervalMs * 1.6) / 1000);
+        this.playBass(bassNote, t, (sixteenthIntervalMs * 1.8) / 1000, mode === 'menu' ? 0.11 : 0.13);
       }
 
-      // C. BRASS LEAD MELODY (Steps with notes)
+      // D. BRASS LEAD MELODY
       const melNote = currentMelody[stepIdx];
       if (melNote) {
-        const pitchShift = mode === 'final_lap' ? 1.05946 : 1.0; // Half-step up for Final Lap!
-        this.playLeadBrass(melNote * pitchShift, t, (sixteenthIntervalMs * 1.8) / 1000);
+        const pitchShift = mode === 'final_lap' ? 1.05946 : 1.0;
+        this.playLeadBrass(melNote * pitchShift, t, (sixteenthIntervalMs * 1.9) / 1000, mode === 'menu' ? 0.075 : 0.085);
       }
 
       this.step++;
@@ -475,25 +515,24 @@ class SoundEngine {
   }
 
   // --- Drum Synthesizers ---
-  playKick(t, vol = 0.25) {
+  playKick(t, vol = 0.22) {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(140, t);
-    osc.frequency.exponentialRampToValueAtTime(35, t + 0.12);
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(32, t + 0.11);
 
     gain.gain.setValueAtTime(vol, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
 
     osc.connect(gain);
     gain.connect(this.ctx.destination);
     osc.start(t);
-    osc.stop(t + 0.14);
+    osc.stop(t + 0.13);
   }
 
-  playSnare(t, vol = 0.16) {
-    // Noise snap + Body tone
-    const dur = 0.14;
+  playSnare(t, vol = 0.15) {
+    const dur = 0.12;
     const bufSize = Math.floor(this.ctx.sampleRate * dur);
     const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -503,7 +542,7 @@ class SoundEngine {
     noise.buffer = buf;
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'highpass';
-    filter.frequency.setValueAtTime(950, t);
+    filter.frequency.setValueAtTime(1100, t);
 
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(vol, t);
@@ -517,19 +556,19 @@ class SoundEngine {
     const osc = this.ctx.createOscillator();
     const oscGain = this.ctx.createGain();
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(220, t);
-    osc.frequency.exponentialRampToValueAtTime(90, t + 0.08);
-    oscGain.gain.setValueAtTime(vol * 0.8, t);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    osc.frequency.setValueAtTime(190, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.07);
+    oscGain.gain.setValueAtTime(vol * 0.7, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
 
     osc.connect(oscGain);
     oscGain.connect(this.ctx.destination);
     osc.start(t);
-    osc.stop(t + 0.1);
+    osc.stop(t + 0.09);
   }
 
-  playHiHat(t, vol = 0.05) {
-    const dur = 0.045;
+  playHiHat(t, vol = 0.04) {
+    const dur = 0.04;
     const bufSize = Math.floor(this.ctx.sampleRate * dur);
     const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -539,7 +578,7 @@ class SoundEngine {
     noise.buffer = buf;
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'highpass';
-    filter.frequency.setValueAtTime(6500, t);
+    filter.frequency.setValueAtTime(7000, t);
 
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(vol, t);
@@ -551,48 +590,84 @@ class SoundEngine {
     noise.start(t);
   }
 
-  // --- Melodic Synthesizers ---
-  playSlapBass(freq, t, dur) {
-    const osc = this.ctx.createOscillator();
+  // --- Melodic & Harmonic Synthesizers ---
+  // Warm, melodic bass - eliminates harsh, metallic "gigon" resonance entirely!
+  playBass(freq, t, dur, vol = 0.12) {
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
     const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
 
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(freq, t);
+    osc1.type = 'triangle';
+    osc1.frequency.setValueAtTime(freq, t);
 
-    // Resonant pluck envelope for funky slap effect
+    // Sub-sine for warm bottom-end thump
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq, t);
+
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1400, t);
-    filter.frequency.exponentialRampToValueAtTime(220, t + dur * 0.8);
-    filter.Q.setValueAtTime(4.0, t);
+    filter.frequency.setValueAtTime(450, t);
+    filter.frequency.exponentialRampToValueAtTime(180, t + dur * 0.85);
+    filter.Q.setValueAtTime(1.2, t); // Gentle, smooth Q (no harsh clang)
 
-    gain.gain.setValueAtTime(0.14, t);
+    gain.gain.setValueAtTime(vol, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-    osc.connect(filter);
+    osc1.connect(filter);
+    osc2.connect(filter);
     filter.connect(gain);
     gain.connect(this.ctx.destination);
-    osc.start(t);
-    osc.stop(t + dur + 0.02);
+
+    osc1.start(t);
+    osc2.start(t);
+    osc1.stop(t + dur + 0.02);
+    osc2.stop(t + dur + 0.02);
   }
 
-  playLeadBrass(freq, t, dur) {
-    // Twin sawtooth oscillators slightly detuned for thick brass sound
+  // Rich Electric Piano & Brass Chords (Brings full game-music harmony!)
+  playChord(freqs, t, dur, vol = 0.04) {
+    freqs.forEach((freq) => {
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1400, t);
+      filter.frequency.exponentialRampToValueAtTime(800, t + dur);
+      filter.Q.setValueAtTime(0.8, t);
+
+      gain.gain.setValueAtTime(vol, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
+    });
+  }
+
+  playLeadBrass(freq, t, dur, vol = 0.08) {
     const osc1 = this.ctx.createOscillator();
     const osc2 = this.ctx.createOscillator();
     const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
 
     osc1.type = 'sawtooth';
-    osc2.type = 'sawtooth';
+    osc2.type = 'triangle';
     osc1.frequency.setValueAtTime(freq, t);
-    osc2.frequency.setValueAtTime(freq * 1.006, t);
+    osc2.frequency.setValueAtTime(freq * 1.004, t);
 
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(2800, t);
-    filter.frequency.exponentialRampToValueAtTime(1200, t + dur);
+    filter.frequency.setValueAtTime(2400, t);
+    filter.frequency.exponentialRampToValueAtTime(1100, t + dur);
+    filter.Q.setValueAtTime(1.5, t);
 
-    gain.gain.setValueAtTime(0.075, t);
+    gain.gain.setValueAtTime(vol, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
     osc1.connect(filter);

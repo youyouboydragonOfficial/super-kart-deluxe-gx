@@ -2188,21 +2188,17 @@ class KartGameEngine {
       const effectiveSteer = racer.drifting ? racer.steerInput * 0.72 + racer.driftDir * 0.55 : racer.steerInput;
       racer.heading += effectiveSteer * turnRate * dt;
 
-      // STRICT PRE-MOVE FORWARD-ONLY CLAMP: Absolutely zero momentary reverse or turning sideways!
+      // 逆走（真後ろを向くこと）のみを防止：コース前方接線に対して ±1.42 rad（約81度）まで自由操舵可能！
+      // 自動でカーブを曲がる機能（auto-centering）は完全撤去！プレイヤー自身がステアリングを切らなければ直進して外側の壁に激突する！
       let headingDiff = racer.heading - trackAngleBefore;
       while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
       while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
 
-      const maxHeadingDev = racer.drifting ? 0.52 : 0.44; // Strict forward arc (approx 25-29 degrees)
+      const maxHeadingDev = racer.drifting ? 1.48 : 1.42; // 約81〜85度の広い自由操舵角（逆走・後退のみ防止）
       if (headingDiff > maxHeadingDev) {
         racer.heading = trackAngleBefore + maxHeadingDev;
       } else if (headingDiff < -maxHeadingDev) {
         racer.heading = trackAngleBefore - maxHeadingDev;
-      }
-
-      // Smooth auto-centering to track curvature when steering is neutral
-      if (Math.abs(racer.steerInput) < 0.05) {
-        racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngleBefore, dt * 6.5);
       }
     }
 
@@ -2264,7 +2260,7 @@ class KartGameEngine {
     while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
     while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
 
-    const maxHeadingDev = racer.drifting ? 0.52 : 0.44;
+    const maxHeadingDev = racer.drifting ? 1.48 : 1.42;
     if (racer.spinOutTimer <= 0) {
       if (headingDiff > maxHeadingDev) {
         racer.heading = trackAngle + maxHeadingDev;
@@ -2312,18 +2308,18 @@ class KartGameEngine {
       const penetration = Math.abs(lateralDist) - maxWallDist;
 
       // 1. Softly resolve penetration along normal with safety buffer
-      racer.pos.addScaledVector(sample.normal, -sign * (penetration + 0.45));
+      racer.pos.addScaledVector(sample.normal, -sign * (penetration + 0.35));
 
-      // 2. Immediately align kart heading along track tangent (parallel to wall) so it never gets stuck into the wall
-      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 12.0);
+      // 2. Align kart heading smoothly along wall tangent (bounces & slides, allows player steering recovery)
+      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 5.5);
 
       // 3. Cancel steering into the wall
       if ((sign > 0 && racer.steerInput < 0) || (sign < 0 && racer.steerInput > 0)) {
         racer.steerInput = 0;
       }
 
-      // 4. Maintain high gliding speed (Minimum 44 km/h or 98% of current speed)
-      racer.speed = Math.max(racer.speed * 0.98, 44);
+      // 4. Gliding wall slide with slight speed penalty (never stops dead, but rewards clean steering!)
+      racer.speed = Math.max(racer.speed * 0.94, 28);
 
       this.spawnSparkBurst(racer.pos, 0xffaa00);
       if (racer.isPlayer) window.soundEngine.sfxWallHit();
@@ -2702,11 +2698,11 @@ class KartGameEngine {
             if (r.boostTimer < 0.3 && r.isPlayer) window.soundEngine.sfxBoost();
             this.triggerBoost(r, 1.25, 32);
 
-            // Smoothly align kart heading to ideal course track tangent (prevents veering into walls!)
+            // Gently guide kart heading toward boost pad tangent while keeping player steering control
             if (g.angle !== undefined) {
-              r.heading = THREE.MathUtils.lerp(r.heading, g.angle, 0.78);
+              r.heading = THREE.MathUtils.lerp(r.heading, g.angle, 0.28);
             }
-            r.steerInput = 0; // Center steering to launch straight forward along the racing line
+            r.steerInput = THREE.MathUtils.lerp(r.steerInput, 0, 0.4);
           }
         });
       } else if (g.type === 'JUMP_RAMP') {
@@ -2715,9 +2711,9 @@ class KartGameEngine {
             r.velY = 26;
             this.triggerBoost(r, 1.4, 26);
             if (g.angle !== undefined) {
-              r.heading = THREE.MathUtils.lerp(r.heading, g.angle, 0.75);
+              r.heading = THREE.MathUtils.lerp(r.heading, g.angle, 0.28);
             }
-            r.steerInput = 0;
+            r.steerInput = THREE.MathUtils.lerp(r.steerInput, 0, 0.4);
             if (r.isPlayer) {
               window.soundEngine.sfxBoost();
             }
@@ -2745,7 +2741,7 @@ class KartGameEngine {
             r.heading = Math.atan2(knockDir.x, knockDir.z); // Hurtles outward!
 
             this.spawnSparkBurst(g.pos, 0x00ffff);
-            if (r.isPlayer) {
+            if (r.isPlayer && this.state === 'RACING') {
               window.soundEngine.sfxExplosion();
               window.soundEngine.sfxLightning();
               this.showTicker('⚡ 光速ボルテックス激突！外側へ大吹き飛びクラッシュ！！');
@@ -3131,9 +3127,21 @@ class UIFlowController {
     this.game = game;
     this.initSelectScreens();
 
+    // Auto-start background music on first user click or keypress
+    const startAudio = () => {
+      window.soundEngine.init();
+      if (!window.soundEngine.bgmTimer) {
+        window.soundEngine.startBGM('menu');
+      }
+      window.removeEventListener('click', startAudio);
+      window.removeEventListener('keydown', startAudio);
+    };
+    window.addEventListener('click', startAudio);
+    window.addEventListener('keydown', startAudio);
+
     this.bootTimer = setTimeout(() => {
       this.skipBoot();
-    }, 1400);
+    }, 1200);
   }
 
   skipBoot() {
@@ -3143,6 +3151,7 @@ class UIFlowController {
     }
     if (document.getElementById('screen-boot').classList.contains('active')) {
       this.showScreen('screen-title');
+      window.soundEngine.startBGM('menu');
     }
   }
 
