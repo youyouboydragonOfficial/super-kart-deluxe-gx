@@ -1434,6 +1434,8 @@ class KartGameEngine {
         shrunkTimer: 0,
         flattenedTimer: 0,
         spinOutTimer: 0,
+        spinRotation: 0,
+        invincibleTimer: 0, // 無敵点滅時間（被弾後の連続ヒット・無限スピンを完全防止）
         overdriveGauge: isPlayer ? 50 : 0,
         overdriveTimer: 0,
         antiGravityTimer: 0,
@@ -1752,9 +1754,29 @@ class KartGameEngine {
       new THREE.SphereGeometry(1.5, 12, 12),
       new THREE.MeshPhongMaterial({ color: 0x222222, emissive: 0x330000 })
     );
-    const forward = new THREE.Vector3(Math.sin(racer.heading), 0, Math.cos(racer.heading));
-    const startPos = racer.pos.clone().addScaledVector(forward, dir > 0 ? 4.6 : -4.6);
-    startPos.y = dir > 0 ? 2.4 : 1.2;
+
+    // コース前方のアスファルト（中心レーシングライン）に向けて山なりに放物線投擲！場外への飛び出しを完全防止！
+    let startPos, vel, velY;
+    if (dir > 0) {
+      const N = this.trackSamples.length;
+      const targetSample = this.trackSamples[(racer.sampleIdx + 8) % N];
+      const targetPt = targetSample.point.clone();
+      targetPt.y = 1.0;
+
+      startPos = racer.pos.clone().add(new THREE.Vector3(0, 2.2, 0));
+      const flightTime = 1.05;
+      const hDisp = targetPt.clone().sub(startPos);
+      hDisp.y = 0;
+      vel = hDisp.divideScalar(flightTime);
+      velY = flightTime * 48 * 0.5; // 放物線打ち上げ
+    } else {
+      const backward = new THREE.Vector3(-Math.sin(racer.heading), 0, -Math.cos(racer.heading));
+      startPos = racer.pos.clone().addScaledVector(backward, 4.5);
+      startPos.y = 1.0;
+      vel = new THREE.Vector3(0, 0, 0);
+      velY = 0;
+    }
+
     mesh.position.copy(startPos);
     this.worldGroup.add(mesh);
 
@@ -1763,11 +1785,12 @@ class KartGameEngine {
       owner: racer,
       mesh,
       pos: startPos,
-      vel: dir > 0 ? forward.multiplyScalar(racer.speed + 60) : new THREE.Vector3(0, 0, 0),
-      velY: dir > 0 ? 20 : 0,
-      fuseTimer: 2.2,
-      radius: 2.3,
-      life: 5
+      vel,
+      velY,
+      sampleIdx: racer.sampleIdx,
+      fuseTimer: 2.8,
+      radius: 3.5,
+      life: 6
     });
     if (racer.isPlayer) window.soundEngine.sfxThrow();
   }
@@ -1877,9 +1900,11 @@ class KartGameEngine {
   }
 
   hitRacer(racer, sourceType) {
-    if (racer.starTimer > 0 || racer.bulletTimer > 0 || racer.overdriveTimer > 0) return;
-    racer.spinOutTimer = 1.05;
-    racer.speed *= 0.25;
+    if (racer.invincibleTimer > 0 || racer.starTimer > 0 || racer.bulletTimer > 0 || racer.overdriveTimer > 0) return;
+    racer.spinOutTimer = 0.85; // 約0.85秒で綺麗に360度1回転して即座に前方へ自走復帰！
+    racer.spinRotation = 0;
+    racer.invincibleTimer = 1.8; // 1.8秒の無敵時間（i-frame）を付与！連続被弾・抜け出せない無限スピンを完全根絶！
+    racer.speed *= 0.35;
     racer.drifting = false;
     racer.driftCharge = 0;
     racer.driftLevel = 0;
@@ -1893,7 +1918,7 @@ class KartGameEngine {
 
     if (racer.isPlayer) {
       window.soundEngine.sfxSpinOut();
-      this.showTicker(`💥 クラッシュ！ (${sourceType}) コイン減少＆スピン！`);
+      this.showTicker(`💥 クラッシュ！ (${sourceType}) コイン減少＆スピン復帰！`);
     }
   }
 
@@ -2084,10 +2109,25 @@ class KartGameEngine {
       }
     }
 
+    // Invincible Timer Countdown (点滅表示 & 連続被弾完全防止)
+    if (racer.invincibleTimer > 0) {
+      racer.invincibleTimer -= dt;
+      racer.mesh.visible = Math.floor(racer.invincibleTimer * 18) % 2 === 0;
+    } else {
+      racer.mesh.visible = true;
+    }
+
     if (racer.spinOutTimer > 0) {
+      racer.spinOutTimer -= dt;
       throttle = 0;
-      racer.speed *= Math.pow(0.2, dt);
-      racer.heading += dt * 7.5;
+      racer.speed *= Math.pow(0.18, dt);
+      racer.heading += dt * 8.5; // 綺麗に1回転スピン
+      if (racer.spinOutTimer <= 0) {
+        // スピン終了：コース前方へ自動整列して即座に自走復帰！
+        const sample = this.trackSamples[racer.sampleIdx];
+        racer.heading = Math.atan2(sample.tangent.x, sample.tangent.z);
+        racer.speed = 20; // 復帰後の発進初速
+      }
     }
 
     // Calculate Top Speed with Coins (+1% per coin up to 10%), Boost, Star, Bullet, Shrink
@@ -2305,13 +2345,17 @@ class KartGameEngine {
 
     if (Math.abs(lateralDist) > maxWallDist) {
       const sign = Math.sign(lateralDist);
-      const penetration = Math.abs(lateralDist) - maxWallDist;
 
-      // 1. Softly resolve penetration along normal with safety buffer
-      racer.pos.addScaledVector(sample.normal, -sign * (penetration + 0.35));
+      // 1. HARD-BOUNDARY CLAMP: カート位置を直接コース壁の境界線上に完全クランプ！（スター時・高速時でも絶対に壁貫通不可！）
+      const tangentDist = offsetVec.dot(sample.tangent);
+      const originalY = racer.pos.y;
+      racer.pos.copy(sample.point)
+        .addScaledVector(sample.tangent, tangentDist)
+        .addScaledVector(sample.normal, sign * maxWallDist);
+      racer.pos.y = originalY;
 
       // 2. Align kart heading smoothly along wall tangent (bounces & slides, allows player steering recovery)
-      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 5.5);
+      racer.heading = THREE.MathUtils.lerp(racer.heading, trackAngle, dt * 6.5);
 
       // 3. Cancel steering into the wall
       if ((sign > 0 && racer.steerInput < 0) || (sign < 0 && racer.steerInput > 0)) {
@@ -2373,9 +2417,8 @@ class KartGameEngine {
     }
   }
 
-  // ==================== RACER COLLISIONS & ITEM DRAG GUARD ====================
+  // ==================== RACER COLLISIONS & BUMPER SHIELD DEFENSE ====================
   updateRacerCollisions() {
-    const isStartPhase = this.raceTime < 4.0; // スタート後4秒間はカート同士の挟まり・動かなくなるバグを完全防止するソフトコリジョン
     for (let i = 0; i < this.racers.length; i++) {
       for (let j = i + 1; j < this.racers.length; j++) {
         const a = this.racers[i];
@@ -2383,24 +2426,24 @@ class KartGameEngine {
         const dx = b.pos.x - a.pos.x;
         const dz = b.pos.z - a.pos.z;
         const distSq = dx * dx + dz * dz;
-        const minDist = isStartPhase ? 2.6 : 3.2;
+        const minDist = 4.2; // 本格バンパーシールド半径（カート同士が絶対に重ならず貫通しない剛体車間距離）
 
-        if (distSq < minDist * minDist && distSq > 0.001) {
+        if (distSq < minDist * minDist && distSq > 0.0001) {
           const dist = Math.sqrt(distSq);
           const nx = dx / dist;
           const nz = dz / dist;
-          const overlap = (minDist - dist) * (isStartPhase ? 0.15 : 0.35);
+          const overlap = minDist - dist;
 
           if ((a.starTimer > 0 || a.bulletTimer > 0) && b.starTimer <= 0) {
             this.hitRacer(b, 'スター体当たり');
-            b.pos.x += nx * 6;
-            b.pos.z += nz * 6;
+            b.pos.x += nx * 8;
+            b.pos.z += nz * 8;
             continue;
           }
           if ((b.starTimer > 0 || b.bulletTimer > 0) && a.starTimer <= 0) {
             this.hitRacer(a, 'スター体当たり');
-            a.pos.x -= nx * 6;
-            a.pos.z -= nz * 6;
+            a.pos.x -= nx * 8;
+            a.pos.z -= nz * 8;
             continue;
           }
 
@@ -2409,11 +2452,12 @@ class KartGameEngine {
             this.triggerBoost(b, 0.9, 18);
           }
 
-          // 安定したソフト分離（挟まり・スタック・振動を完全に解消）
-          a.pos.x -= nx * overlap * 0.5;
-          a.pos.z -= nz * overlap * 0.5;
-          b.pos.x += nx * overlap * 0.5;
-          b.pos.z += nz * overlap * 0.5;
+          // 剛体バンパーシールド反発物理（車同士の貫通・めり込み・重なりを100%完全解消！）
+          const push = overlap * 0.52;
+          a.pos.x -= nx * push;
+          a.pos.z -= nz * push;
+          b.pos.x += nx * push;
+          b.pos.z += nz * push;
         }
       }
     }
@@ -2456,12 +2500,37 @@ class KartGameEngine {
             p.velY = 0;
           }
         }
+
+        // コース壁判定（ボムへいが場外へ飛んでいくのを完全防止！）
+        p.sampleIdx = this.findClosestTrackSample(p.pos, p.sampleIdx || 0);
+        const s = this.trackSamples[p.sampleIdx];
+        const offset = p.pos.clone().sub(s.point);
+        offset.y = 0;
+        const lat = offset.dot(s.normal);
+        const wallLimit = this.trackWidth - 1.8;
+        if (Math.abs(lat) > wallLimit) {
+          p.pos.copy(s.point).addScaledVector(s.normal, Math.sign(lat) * wallLimit);
+          p.pos.y = 1.0;
+          p.vel.set(0, 0, 0);
+        }
+
         p.mesh.position.copy(p.pos);
         p.fuseTimer -= dt;
         const pulse = 1 + Math.sin(performance.now() * 0.03) * 0.25;
         p.mesh.scale.set(pulse, pulse, pulse);
 
-        if (p.fuseTimer <= 0) {
+        // 近接信管（敵レーサーが近付いたらタイマーに関係なく即座に大爆発！）
+        let proximityTrigger = false;
+        if (p.pos.y <= 1.2) {
+          for (const r of this.racers) {
+            if (r !== p.owner && r.pos.distanceTo(p.pos) < 8.5) {
+              proximityTrigger = true;
+              break;
+            }
+          }
+        }
+
+        if (p.fuseTimer <= 0 || proximityTrigger) {
           this.explodeBobOmb(p.pos);
           this.worldGroup.remove(p.mesh);
           this.projectiles.splice(i, 1);
@@ -2728,7 +2797,7 @@ class KartGameEngine {
           toRacer.y = 0;
           const dist = toRacer.length();
 
-          if (dist < g.radius) {
+          if (dist < g.radius && r.invincibleTimer <= 0) {
             // Instant violent ejection away from pillar (ZERO STICKING!)
             const knockDir = dist > 0.1 ? toRacer.normalize() : new THREE.Vector3(1, 0, 0);
             r.pos.addScaledVector(knockDir, (g.radius - dist) + 5.5);
@@ -2919,6 +2988,42 @@ class KartGameEngine {
     // Guard Badge (Item holding behind)
     if (guardBadge) {
       guardBadge.classList.toggle('hidden', !this.player.isHoldingItem);
+    }
+
+    // Item Operation Guide Card (左側スペースのリアルタイム操作ガイド)
+    const guideIcon = document.getElementById('guide-item-icon');
+    const guideTitle = document.getElementById('guide-item-title');
+    const guideDesc = document.getElementById('guide-item-desc');
+
+    if (guideIcon && guideTitle && guideDesc) {
+      const activeItem = this.player.itemSlot1 ? this.player.itemSlot1.def : null;
+      if (activeItem) {
+        guideIcon.textContent = activeItem.icon;
+        guideTitle.textContent = `${activeItem.name} の使い方`;
+        if (activeItem.id.includes('BULLET')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd> / <kbd>Z</kbd>: <strong>超巨大ロケット変形！</strong></div><div>自動爆走＆触れたライバルを全員なぎ倒す！</div>`;
+        } else if (activeItem.id.includes('BOB_OMB')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd>: 前方へ山なり放物線投擲！</div><div><kbd>X</kbd>: 真後ろに設置！敵接近で即座に大爆発！</div>`;
+        } else if (activeItem.id.includes('MUSHROOM')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd> / <kbd>Z</kbd>: <strong>超ダッシュ加速！</strong></div><div>ダートや芝生も減速ゼロでショートカット突破！</div>`;
+        } else if (activeItem.id.includes('STAR')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd> / <kbd>Z</kbd>: <strong>完全無敵＆最高速UP！</strong></div><div>接触したライバルを全員大吹き飛ばし！</div>`;
+        } else if (activeItem.id.includes('RED_SHELL')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd>: 前方のライバルを<strong>自動追尾ホーミング！</strong></div><div><kbd>X</kbd>: 後方発射 / 長押しで後ろガード！</div>`;
+        } else if (activeItem.id.includes('GREEN_SHELL')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd>: 直線発射＆壁反射！</div><div><kbd>X</kbd>: 後方発射 / 長押しで後ろガード！</div>`;
+        } else if (activeItem.id.includes('BANANA')) {
+          guideDesc.innerHTML = `<div><kbd>X</kbd>: 真後ろに設置！</div><div><kbd>Space</kbd>: 前方へ大遠投 / 長押しで後ろガード！</div>`;
+        } else if (activeItem.id.includes('LIGHTNING')) {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd> / <kbd>Z</kbd>: <strong>ライバル全員に落雷！</strong></div><div>敵全員スピン＆ミニ化減速！</div>`;
+        } else {
+          guideDesc.innerHTML = `<div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム使用・前投げ</div><div><kbd>X</kbd>: 後ろに設置・後方発射</div>`;
+        }
+      } else {
+        guideIcon.textContent = '🏎️';
+        guideTitle.textContent = 'ドライビング操作ガイド';
+        guideDesc.innerHTML = `<div><kbd>W</kbd>: アクセル | <kbd>S</kbd>: ブレーキ（減速・停止）</div><div><kbd>A</kbd>/<kbd>D</kbd>: ハンドル操作 | <kbd>Shift</kbd>: ドリフト</div><div class="rocket-tip">🚀 <strong>ロケットスタート</strong>: カウント「2」消え際から <kbd>W</kbd> 長押し！</div>`;
+      }
     }
   }
 

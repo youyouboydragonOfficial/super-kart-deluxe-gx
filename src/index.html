@@ -30,7 +30,7 @@
   <!-- ================= 2. AUTHENTIC TITLE SCREEN ================= -->
   <div id="screen-title" class="screen">
     <div class="title-top-bar">
-      <div class="ver-badge">Ver. 2.0.5 DELUXE GX (完全動作保証・3D WebGLエンジン搭載)</div>
+      <div class="ver-badge">Ver. 2.0.6 DELUXE GX (完全動作保証・3D WebGLエンジン搭載)</div>
       <div class="top-controls-hint">F11: フルスクリーン切替 | M: サウンドON/OFF</div>
     </div>
 
@@ -177,12 +177,22 @@
         </div>
       </div>
 
+      <!-- Current Item Action Guide (リアルタイム操作説明カード) -->
+      <div id="hud-item-guide-card" class="item-guide-card">
+        <div class="guide-header">
+          <span class="guide-icon" id="guide-item-icon">💡</span>
+          <span class="guide-title" id="guide-item-title">アイテム操作ガイド</span>
+        </div>
+        <div class="guide-desc" id="guide-item-desc">
+          <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム使用 / 前方に投げる</div>
+          <div><kbd>X</kbd> / <kbd>↓+Space</kbd>: 後ろにバナナ設置 / 後方発射</div>
+          <div class="rocket-tip">🚀 <strong>ロケットスタート</strong>: カウント「2」の消え際から <kbd>W</kbd> 長押し！</div>
+        </div>
+      </div>
+
       <!-- Item Status / Guard & Action Hint -->
       <div class="item-throw-hint">
         <div id="hud-guard-badge" class="guard-badge hidden">🛡️ アイテム後ろ引きずり防御中 (後方こうらガード)</div>
-        <div><kbd>Space</kbd> / <kbd>Z</kbd>: アイテム使用 / 前投げ （長押しで後ろ引きずりガード）</div>
-        <div><kbd>X</kbd> / <kbd>↓+Space</kbd>: 後ろにバナナ設置 / 後方へこうら発射</div>
-        <div>ジャンプ台の先端で <kbd>Shift</kbd> / <kbd>Ctrl</kbd>: <strong>ジャンプアクション（着地ダッシュ）</strong></div>
       </div>
     </div>
 
